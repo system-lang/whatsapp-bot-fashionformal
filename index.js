@@ -16,8 +16,21 @@ const links = {
 };
 
 app.post('/webhook', async (req, res) => {
-  const message = req.body.message?.text?.body || req.body.message?.text || req.body.message?.body;
-  const from = req.body.user?.phone || req.body.message?.from;
+  // Debug: Log the entire request body to see Maytapi's format
+  console.log('Full webhook data:', JSON.stringify(req.body, null, 2));
+
+  // Improved message parsing to handle different Maytapi webhook formats
+  const message = req.body.message?.text?.body || 
+                  req.body.message?.text || 
+                  req.body.message?.body || 
+                  req.body.text || 
+                  req.body.message;
+
+  const from = req.body.user?.phone || 
+              req.body.message?.from || 
+              req.body.from || 
+              req.body.user?.id ||
+              req.body.phone;
 
   console.log('Webhook received:', message, 'from', from);
 
