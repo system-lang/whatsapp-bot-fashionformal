@@ -8,10 +8,10 @@ app.use(express.json());
 // Store user states to track which menu they're in
 let userStates = {};
 
-// Links for different options
+// Links for different options - UPDATED WITH NEW LINKS
 const links = {
-  helpTicket: 'https://script.google.com/a/macros/fashionformal.com/s/AKfycbzTi9l6afTIaj7f6aiKAMuE7Hz4pQX8796wk5inuHw7wAFgbjv0sFQNCVquPzNEniYdEg/exec',
-  delegation: 'https://script.google.com/a/macros/fashionformal.com/s/AKfycbwqdP4BmXhOKm6UEu-xd8Pag_6UErQzr7KKP0mXiECatvv1rDL5-sWLPYAIwReAHfgi/exec',
+  helpTicket: 'https://tinyurl.com/HelpticketFF',
+  delegation: 'https://tinyurl.com/DelegationFF',
   leave: 'YOUR_LEAVE_FORM_LINK_HERE'
 };
 
@@ -58,7 +58,7 @@ _Type the number to continue..._`;
   // Handle main menu selections
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     if (message && message.trim() === '1') {
-      // IMPROVED: Direct clickable links instead of submenu
+      // Direct clickable links for all ticket options
       const ticketMenu = `🎫 *TICKET OPTIONS*
 Click the links below to access forms directly:
 
@@ -95,7 +95,7 @@ _Type */* to return to main menu._`;
 
   // Handle invalid input
   if (message && !['/', '1', '2', '3', '4'].includes(message.trim())) {
-    await sendWhatsAppMessage(from, '❌ Invalid option. Type */* to see the main menu.');
+    await sendWhatsAppMessage(from, '❌ Invalid option. Type */* to see the main menu.', productId, phoneId);
   }
 
   res.sendStatus(200);
