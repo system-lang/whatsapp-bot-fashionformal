@@ -31,22 +31,26 @@ app.post('/webhook', async (req, res) => {
   console.log('Message:', message);
   console.log('From:', from);
 
-  // ONLY respond if message exists and is not empty
-  if (!message || typeof message !== 'string' || message.trim() === '') {
-    console.log('Empty or invalid message - ignoring');
+  // IMMEDIATELY EXIT if message is empty, null, or invalid
+  if (!message || typeof message !== 'string') {
+    console.log('No valid message - staying silent');
     return res.sendStatus(200);
   }
 
   const trimmedMessage = message.trim();
 
-  // Initialize user state if not exists
-  if (!userStates[from]) {
-    userStates[from] = { currentMenu: 'main' };
+  // IMMEDIATELY EXIT if message is empty after trimming
+  if (trimmedMessage === '') {
+    console.log('Empty message after trim - staying silent');
+    return res.sendStatus(200);
   }
 
-  // ONLY respond to "/" command to show main menu
+  // ONLY process messages that are EXACTLY "/" or menu options from users already in menu
+  
+  // Handle main menu trigger - ONLY for "/"
   if (trimmedMessage === '/') {
-    userStates[from].currentMenu = 'main';
+    console.log('Menu command received - activating bot');
+    userStates[from] = { currentMenu: 'main' };
     const mainMenu = `🏠 *MAIN MENU*
 Please select an option:
 
@@ -61,10 +65,9 @@ _Type the number to continue..._`;
     return res.sendStatus(200);
   }
 
-  // Handle menu selections ONLY if user is in a menu state
+  // Handle menu selections ONLY if user previously used "/"
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     if (trimmedMessage === '1') {
-      // Direct clickable links for all ticket options
       const ticketMenu = `🎫 *TICKET OPTIONS*
 Click the links below to access forms directly:
 
@@ -80,34 +83,36 @@ ${links.delegation}
 _Type */* to return to main menu._`;
       
       await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
+      userStates[from].currentMenu = 'completed'; // Mark as completed
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '2') {
       await sendWhatsAppMessage(from, '🔍 *ORDER QUERY*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
+      userStates[from].currentMenu = 'completed'; // Mark as completed
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '3') {
       await sendWhatsAppMessage(from, '📊 *STOCK QUERY*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
+      userStates[from].currentMenu = 'completed'; // Mark as completed
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '4') {
       await sendWhatsAppMessage(from, '📄 *DOCUMENT*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
+      userStates[from].currentMenu = 'completed'; // Mark as completed
       return res.sendStatus(200);
     }
 
-    // If user is in main menu but sends invalid option, give helpful hint
-    if (!['1', '2', '3', '4'].includes(trimmedMessage)) {
-      await sendWhatsAppMessage(from, '❌ Invalid option. Please select 1, 2, 3, or 4.\n\nType */* to see the main menu again.', productId, phoneId);
-      return res.sendStatus(200);
-    }
+    // Invalid menu option - but only for users already in menu
+    await sendWhatsAppMessage(from, '❌ Invalid option. Please select 1, 2, 3, or 4.\n\nType */* to see the main menu again.', productId, phoneId);
+    return res.sendStatus(200);
   }
 
-  // FOR ALL OTHER MESSAGES: Do nothing (no response)
-  console.log('Normal message received - no response needed:', trimmedMessage);
-  res.sendStatus(200);
+  // FOR ALL OTHER MESSAGES: COMPLETE SILENCE
+  console.log('Normal message received - bot staying silent:', trimmedMessage);
+  return res.sendStatus(200);
 });
 
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
@@ -140,5 +145,5 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot will only respond to "/" commands - all other messages ignored');
+  console.log('✅ Bot will ONLY respond to "/" commands - complete silence for all other messages');
 });
