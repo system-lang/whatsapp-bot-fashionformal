@@ -12,18 +12,26 @@ let userStates = {};
 const links = {
   helpTicket: 'https://script.google.com/a/macros/fashionformal.com/s/AKfycbzTi9l6afTIaj7f6aiKAMuE7Hz4pQX8796wk5inuHw7wAFgbjv0sFQNCVquPzNEniYdEg/exec',
   delegation: 'https://script.google.com/a/macros/fashionformal.com/s/AKfycbwqdP4BmXhOKm6UEu-xd8Pag_6UErQzr7KKP0mXiECatvv1rDL5-sWLPYAIwReAHfgi/exec',
-  leave: 'YOUR_LEAVE_FORM_LINK_HERE' // Replace with actual link when you get it
+  leave: 'YOUR_LEAVE_FORM_LINK_HERE'
 };
 
+// Your API Token (only thing we need as constant)
+const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
+
 app.post('/webhook', async (req, res) => {
-  // Debug: Log the entire request body to see Maytapi's format
   console.log('Full webhook data:', JSON.stringify(req.body, null, 2));
 
-  // Parse message and phone number from Maytapi webhook
-  const message = req.body.message?.text || req.body.message?.body;
+  // Extract everything we need FROM THE WEBHOOK ITSELF!
+  const message = req.body.message?.text;
   const from = req.body.user?.phone;
+  const productId = req.body.product_id || req.body.productId; // Use webhook data!
+  const phoneId = req.body.phone_id || req.body.phoneId; // Use webhook data!
 
-  console.log('Webhook received:', message, 'from', from);
+  console.log('Extracted from webhook:');
+  console.log('Message:', message);
+  console.log('From:', from);
+  console.log('Product ID:', productId);
+  console.log('Phone ID:', phoneId);
 
   // Initialize user state if not exists
   if (!userStates[from]) {
@@ -43,7 +51,7 @@ Please select an option:
 
 _Type the number to continue..._`;
     
-    await sendWhatsAppMessage(from, mainMenu);
+    await sendWhatsAppMessage(from, mainMenu, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -60,22 +68,22 @@ Choose your option:
 
 _Type the number or click the links below:_`;
       
-      await sendWhatsAppMessage(from, ticketSubMenu);
+      await sendWhatsAppMessage(from, ticketSubMenu, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (message && message.trim() === '2') {
-      await sendWhatsAppMessage(from, '🔍 *ORDER QUERY*\nThis feature is coming soon!\n\nType */* to return to main menu.');
+      await sendWhatsAppMessage(from, '🔍 *ORDER QUERY*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (message && message.trim() === '3') {
-      await sendWhatsAppMessage(from, '📊 *STOCK QUERY*\nThis feature is coming soon!\n\nType */* to return to main menu.');
+      await sendWhatsAppMessage(from, '📊 *STOCK QUERY*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (message && message.trim() === '4') {
-      await sendWhatsAppMessage(from, '📄 *DOCUMENT*\nThis feature is coming soon!\n\nType */* to return to main menu.');
+      await sendWhatsAppMessage(from, '📄 *DOCUMENT*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
       return res.sendStatus(200);
     }
   }
@@ -90,8 +98,8 @@ ${links.helpTicket}
 
 Type */* to return to main menu.`;
       
-      await sendWhatsAppMessage(from, helpTicketMsg);
-      userStates[from].currentMenu = 'main'; // Reset to main menu
+      await sendWhatsAppMessage(from, helpTicketMsg, productId, phoneId);
+      userStates[from].currentMenu = 'main';
       return res.sendStatus(200);
     }
 
@@ -103,8 +111,8 @@ ${links.leave}
 
 Type */* to return to main menu.`;
       
-      await sendWhatsAppMessage(from, leaveFormMsg);
-      userStates[from].currentMenu = 'main'; // Reset to main menu
+      await sendWhatsAppMessage(from, leaveFormMsg, productId, phoneId);
+      userStates[from].currentMenu = 'main';
       return res.sendStatus(200);
     }
 
@@ -116,36 +124,29 @@ ${links.delegation}
 
 Type */* to return to main menu.`;
       
-      await sendWhatsAppMessage(from, delegationMsg);
-      userStates[from].currentMenu = 'main'; // Reset to main menu
+      await sendWhatsAppMessage(from, delegationMsg, productId, phoneId);
+      userStates[from].currentMenu = 'main';
       return res.sendStatus(200);
     }
   }
 
   // Handle invalid input
   if (message && !['/', '1', '2', '3', '4'].includes(message.trim())) {
-    await sendWhatsAppMessage(from, '❌ Invalid option. Type */* to see the main menu.');
+    await sendWhatsAppMessage(from, '❌ Invalid option. Type */* to see the main menu.', productId, phoneId);
   }
 
   res.sendStatus(200);
 });
 
-async function sendWhatsAppMessage(to, message) {
-  // Debug environment variables
-  console.log('Environment Variables Check:');
-  console.log('MAYTAPI_PRODUCT_ID:', process.env.MAYTAPI_PRODUCT_ID || 'UNDEFINED');
-  console.log('MAYTAPI_PHONE_ID:', process.env.MAYTAPI_PHONE_ID || 'UNDEFINED');
-  console.log('MAYTAPI_API_TOKEN:', process.env.MAYTAPI_API_TOKEN ? 'SET (length: ' + process.env.MAYTAPI_API_TOKEN.length + ')' : 'UNDEFINED');
-
+async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
-    console.log('Sending API request with:');
-    console.log('Product ID:', process.env.MAYTAPI_PRODUCT_ID);
-    console.log('Phone ID:', process.env.MAYTAPI_PHONE_ID);
+    console.log('Sending API request with WEBHOOK DATA:');
+    console.log('Product ID:', productId);
+    console.log('Phone ID:', phoneId);
     console.log('To:', to);
-    console.log('Message:', message);
 
     const response = await axios.post(
-      `https://api.maytapi.com/api/${process.env.MAYTAPI_PRODUCT_ID}/${process.env.MAYTAPI_PHONE_ID}/sendMessage`,
+      `https://api.maytapi.com/api/${productId}/${phoneId}/sendMessage`,
       {
         to_number: to,
         type: "text",
@@ -153,68 +154,19 @@ async function sendWhatsAppMessage(to, message) {
       },
       {
         headers: {
-          'x-maytapi-key': process.env.MAYTAPI_API_TOKEN,
+          'x-maytapi-key': MAYTAPI_API_TOKEN,
           'Content-Type': 'application/json'
         }
       }
     );
     console.log('Message sent successfully:', response.data);
   } catch (error) {
-    console.error('Primary API call failed:', error.response?.data || error.message);
-    
-    // Try alternative header format
-    try {
-      console.log('Trying alternative header format...');
-      const altResponse = await axios.post(
-        `https://api.maytapi.com/api/${process.env.MAYTAPI_PRODUCT_ID}/${process.env.MAYTAPI_PHONE_ID}/sendMessage`,
-        {
-          to_number: to,
-          type: "text",
-          message: message
-        },
-        {
-          headers: {
-            'X-Maytapi-Key': process.env.MAYTAPI_API_TOKEN, // Capitalized header
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      console.log('Alternative header format success:', altResponse.data);
-    } catch (altError) {
-      console.error('Alternative header format also failed:', altError.response?.data || altError.message);
-      
-      // Try with different payload format
-      try {
-        console.log('Trying different payload format...');
-        const finalResponse = await axios.post(
-          `https://api.maytapi.com/api/${process.env.MAYTAPI_PRODUCT_ID}/${process.env.MAYTAPI_PHONE_ID}/sendMessage`,
-          {
-            to: to,
-            message: message,
-            type: "text"
-          },
-          {
-            headers: {
-              'x-maytapi-key': process.env.MAYTAPI_API_TOKEN,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-        console.log('Different payload format success:', finalResponse.data);
-      } catch (finalError) {
-        console.error('All API attempts failed:', finalError.response?.data || finalError.message);
-      }
-    }
+    console.error('Error sending message:', error.response?.data || error.message);
   }
 }
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
-  console.log('MAYTAPI_PRODUCT_ID:', process.env.MAYTAPI_PRODUCT_ID || '❌ NOT SET');
-  console.log('MAYTAPI_PHONE_ID:', process.env.MAYTAPI_PHONE_ID || '❌ NOT SET');
-  console.log('MAYTAPI_API_TOKEN:', process.env.MAYTAPI_API_TOKEN ? '✅ SET' : '❌ NOT SET');
-  console.log('NODE_ENV:', process.env.NODE_ENV || 'not set');
-  console.log('===================================');
+  console.log('✅ Using webhook data for API credentials - No environment variables needed!');
 });
