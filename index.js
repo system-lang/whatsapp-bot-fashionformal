@@ -131,6 +131,12 @@ Type */* to return to main menu.`;
 });
 
 async function sendWhatsAppMessage(to, message) {
+  // Debug environment variables
+  console.log('Environment Variables Check:');
+  console.log('MAYTAPI_PRODUCT_ID:', process.env.MAYTAPI_PRODUCT_ID || 'UNDEFINED');
+  console.log('MAYTAPI_PHONE_ID:', process.env.MAYTAPI_PHONE_ID || 'UNDEFINED');
+  console.log('MAYTAPI_API_TOKEN:', process.env.MAYTAPI_API_TOKEN ? 'SET (length: ' + process.env.MAYTAPI_API_TOKEN.length + ')' : 'UNDEFINED');
+
   try {
     console.log('Sending API request with:');
     console.log('Product ID:', process.env.MAYTAPI_PRODUCT_ID);
@@ -205,4 +211,10 @@ async function sendWhatsAppMessage(to, message) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
+  console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
+  console.log('MAYTAPI_PRODUCT_ID:', process.env.MAYTAPI_PRODUCT_ID || '❌ NOT SET');
+  console.log('MAYTAPI_PHONE_ID:', process.env.MAYTAPI_PHONE_ID || '❌ NOT SET');
+  console.log('MAYTAPI_API_TOKEN:', process.env.MAYTAPI_API_TOKEN ? '✅ SET' : '❌ NOT SET');
+  console.log('NODE_ENV:', process.env.NODE_ENV || 'not set');
+  console.log('===================================');
 });
