@@ -19,18 +19,9 @@ app.post('/webhook', async (req, res) => {
   // Debug: Log the entire request body to see Maytapi's format
   console.log('Full webhook data:', JSON.stringify(req.body, null, 2));
 
-  // Improved message parsing to handle different Maytapi webhook formats
-  const message = req.body.message?.text?.body || 
-                  req.body.message?.text || 
-                  req.body.message?.body || 
-                  req.body.text || 
-                  req.body.message;
-
-  const from = req.body.user?.phone || 
-              req.body.message?.from || 
-              req.body.from || 
-              req.body.user?.id ||
-              req.body.phone;
+  // Parse message and phone number from Maytapi webhook
+  const message = req.body.message?.text || req.body.message?.body;
+  const from = req.body.user?.phone;
 
   console.log('Webhook received:', message, 'from', from);
 
@@ -57,7 +48,7 @@ _Type the number to continue..._`;
   }
 
   // Handle main menu selections
-  if (userStates[from].currentMenu === 'main') {
+  if (userStates[from] && userStates[from].currentMenu === 'main') {
     if (message && message.trim() === '1') {
       userStates[from].currentMenu = 'ticket';
       const ticketSubMenu = `🎫 *TICKET MENU*
@@ -90,7 +81,7 @@ _Type the number or click the links below:_`;
   }
 
   // Handle ticket submenu selections
-  if (userStates[from].currentMenu === 'ticket') {
+  if (userStates[from] && userStates[from].currentMenu === 'ticket') {
     if (message && message.trim() === '1') {
       const helpTicketMsg = `🆘 *HELP TICKET*
 
@@ -141,6 +132,12 @@ Type */* to return to main menu.`;
 
 async function sendWhatsAppMessage(to, message) {
   try {
+    console.log('Sending API request with:');
+    console.log('Product ID:', process.env.MAYTAPI_PRODUCT_ID);
+    console.log('Phone ID:', process.env.MAYTAPI_PHONE_ID);
+    console.log('To:', to);
+    console.log('Message:', message);
+
     const response = await axios.post(
       `https://api.maytapi.com/api/${process.env.MAYTAPI_PRODUCT_ID}/${process.env.MAYTAPI_PHONE_ID}/sendMessage`,
       {
@@ -157,7 +154,51 @@ async function sendWhatsAppMessage(to, message) {
     );
     console.log('Message sent successfully:', response.data);
   } catch (error) {
-    console.error('Error sending message:', error.response?.data || error.message);
+    console.error('Primary API call failed:', error.response?.data || error.message);
+    
+    // Try alternative header format
+    try {
+      console.log('Trying alternative header format...');
+      const altResponse = await axios.post(
+        `https://api.maytapi.com/api/${process.env.MAYTAPI_PRODUCT_ID}/${process.env.MAYTAPI_PHONE_ID}/sendMessage`,
+        {
+          to_number: to,
+          type: "text",
+          message: message
+        },
+        {
+          headers: {
+            'X-Maytapi-Key': process.env.MAYTAPI_API_TOKEN, // Capitalized header
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      console.log('Alternative header format success:', altResponse.data);
+    } catch (altError) {
+      console.error('Alternative header format also failed:', altError.response?.data || altError.message);
+      
+      // Try with different payload format
+      try {
+        console.log('Trying different payload format...');
+        const finalResponse = await axios.post(
+          `https://api.maytapi.com/api/${process.env.MAYTAPI_PRODUCT_ID}/${process.env.MAYTAPI_PHONE_ID}/sendMessage`,
+          {
+            to: to,
+            message: message,
+            type: "text"
+          },
+          {
+            headers: {
+              'x-maytapi-key': process.env.MAYTAPI_API_TOKEN,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        console.log('Different payload format success:', finalResponse.data);
+      } catch (finalError) {
+        console.error('All API attempts failed:', finalError.response?.data || finalError.message);
+      }
+    }
   }
 }
 
