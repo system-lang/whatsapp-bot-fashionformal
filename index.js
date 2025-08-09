@@ -15,7 +15,7 @@ const links = {
   leave: 'YOUR_LEAVE_FORM_LINK_HERE'
 };
 
-// Your API Token (only thing we need as constant)
+// Your API Token
 const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 
 app.post('/webhook', async (req, res) => {
@@ -24,8 +24,8 @@ app.post('/webhook', async (req, res) => {
   // Extract everything we need FROM THE WEBHOOK ITSELF!
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
-  const productId = req.body.product_id || req.body.productId; // Use webhook data!
-  const phoneId = req.body.phone_id || req.body.phoneId; // Use webhook data!
+  const productId = req.body.product_id || req.body.productId;
+  const phoneId = req.body.phone_id || req.body.phoneId;
 
   console.log('Extracted from webhook:');
   console.log('Message:', message);
@@ -58,17 +58,22 @@ _Type the number to continue..._`;
   // Handle main menu selections
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     if (message && message.trim() === '1') {
-      userStates[from].currentMenu = 'ticket';
-      const ticketSubMenu = `🎫 *TICKET MENU*
-Choose your option:
+      // IMPROVED: Direct clickable links instead of submenu
+      const ticketMenu = `🎫 *TICKET OPTIONS*
+Click the links below to access forms directly:
 
-1️⃣ Help Ticket
-2️⃣ Leave Form  
-3️⃣ Delegation
+🆘 *HELP TICKET*
+${links.helpTicket}
 
-_Type the number or click the links below:_`;
+🏖️ *LEAVE FORM*
+${links.leave}
+
+👥 *DELEGATION*
+${links.delegation}
+
+_Type */* to return to main menu._`;
       
-      await sendWhatsAppMessage(from, ticketSubMenu, productId, phoneId);
+      await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
       return res.sendStatus(200);
     }
 
@@ -88,51 +93,9 @@ _Type the number or click the links below:_`;
     }
   }
 
-  // Handle ticket submenu selections
-  if (userStates[from] && userStates[from].currentMenu === 'ticket') {
-    if (message && message.trim() === '1') {
-      const helpTicketMsg = `🆘 *HELP TICKET*
-
-Click the link below to access Help Ticket:
-${links.helpTicket}
-
-Type */* to return to main menu.`;
-      
-      await sendWhatsAppMessage(from, helpTicketMsg, productId, phoneId);
-      userStates[from].currentMenu = 'main';
-      return res.sendStatus(200);
-    }
-
-    if (message && message.trim() === '2') {
-      const leaveFormMsg = `🏖️ *LEAVE FORM*
-
-Click the link below to access Leave Form:
-${links.leave}
-
-Type */* to return to main menu.`;
-      
-      await sendWhatsAppMessage(from, leaveFormMsg, productId, phoneId);
-      userStates[from].currentMenu = 'main';
-      return res.sendStatus(200);
-    }
-
-    if (message && message.trim() === '3') {
-      const delegationMsg = `👥 *DELEGATION*
-
-Click the link below to access Delegation:
-${links.delegation}
-
-Type */* to return to main menu.`;
-      
-      await sendWhatsAppMessage(from, delegationMsg, productId, phoneId);
-      userStates[from].currentMenu = 'main';
-      return res.sendStatus(200);
-    }
-  }
-
   // Handle invalid input
   if (message && !['/', '1', '2', '3', '4'].includes(message.trim())) {
-    await sendWhatsAppMessage(from, '❌ Invalid option. Type */* to see the main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, '❌ Invalid option. Type */* to see the main menu.');
   }
 
   res.sendStatus(200);
