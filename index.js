@@ -20,9 +20,23 @@ const links = {
 const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 
 // Google Sheets configuration
-const FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
+const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
+const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 
-// Google Sheets authentication
+// Your static form configuration
+const STATIC_FORM_ID = '1_FQLEIgDnLpaogmn2la0r9RyYzjF0xYFp9l5ZL9HbpU';
+const RESPONSE_SHEET_ID = '1nqILVLotV2CSC55bKq0XifyBRm3wAEhg2xKR4V_EcGU';
+
+// Form entry IDs extracted from your pre-filled link
+const FORM_ENTRIES = {
+  STORE_NAME: 'entry.1482226385',    // Store Name field
+  QUALITY: 'entry.1437628751',       // Quality field  
+  MTR: 'entry.294266897',            // MTR field
+  REMARKS: 'entry.1263045187',       // Remarks field
+  CONTACT: 'entry.740712049'         // Contact Number field
+};
+
+// Google Sheets authentication (NO FORMS API NEEDED)
 async function getGoogleAuth() {
   try {
     const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -38,6 +52,7 @@ async function getGoogleAuth() {
       scopes: [
         'https://www.googleapis.com/auth/spreadsheets.readonly',
         'https://www.googleapis.com/auth/drive.readonly'
+        // NO Google Forms API scope needed!
       ],
     });
     
@@ -126,7 +141,7 @@ _Type */* to return to main menu._`;
 Please enter the Quality names you want to search for.
 
 *Multiple qualities:* Separate with commas
-*Example:* LTS8156, Quality2, Quality3
+*Example:* LTS8156, ETCH8029, Quality3
 
 _Type your quality names below:_`;
       
@@ -150,7 +165,7 @@ _Type your quality names below:_`;
     if (trimmedMessage !== '/') {
       // Process the quality search
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processStockQuery(from, qualities, productId, phoneId);
+      await processEnhancedStockQuery(from, qualities, productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
@@ -161,18 +176,21 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// FIXED: Stock query with better search logic
-async function processStockQuery(from, qualities, productId, phoneId) {
+// ENHANCED: Stock query with pre-filled static form
+async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
   try {
-    console.log('Processing stock query for qualities:', qualities);
+    console.log('Processing enhanced stock query for qualities:', qualities);
     
     // Send processing message
     await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory.', productId, phoneId);
 
-    // Search in ALL sheets dynamically
+    // Get stock results
     const stockResults = await searchStockInAllSheets(qualities);
     
-    // Format results in CLEAN format (no table)
+    // Get user's permitted stores
+    const permittedStores = await getUserPermittedStores(from);
+    
+    // Format stock results
     let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
     
     qualities.forEach(quality => {
@@ -189,17 +207,102 @@ async function processStockQuery(from, qualities, productId, phoneId) {
       }
     });
     
+    // Add pre-filled form link if user has store permissions
+    if (permittedStores.length > 0) {
+      const formUrl = createPreFilledFormLink(qualities, permittedStores, from);
+      responseMessage += `📋 *INQUIRY FORM*\nTo place an inquiry for any of these qualities:\n${formUrl}\n\n`;
+      responseMessage += `*Instructions:*\n`;
+      responseMessage += `• Store Name: Select from "${permittedStores.join(', ')}"\n`;
+      responseMessage += `• Quality: Select from "${qualities.join(', ')}"\n`;
+      responseMessage += `• Fill MTR and Remarks as needed\n\n`;
+    } else {
+      console.log(`No store permissions found for ${from}`);
+    }
+    
     responseMessage += `_Type */* to return to main menu._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error processing stock query:', error);
+    console.error('Error processing enhanced stock query:', error);
     await sendWhatsAppMessage(from, '❌ *Error searching stock*\nSorry, there was an issue accessing the inventory data. Please try again later.\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
-// IMPROVED: Better search logic to find LTS8156
+// NEW: Create pre-filled static form link with user permissions
+function createPreFilledFormLink(qualities, permittedStores, userPhone) {
+  const baseUrl = `https://docs.google.com/forms/d/${STATIC_FORM_ID}/viewform`;
+  const params = new URLSearchParams();
+  
+  // Pre-fill Store Name with permitted stores (user will pick one)
+  params.append(FORM_ENTRIES.STORE_NAME, `Select from: ${permittedStores.join(', ')}`);
+  
+  // Pre-fill Quality with searched qualities (user will pick one)  
+  params.append(FORM_ENTRIES.QUALITY, `Select from: ${qualities.join(', ')}`);
+  
+  // Pre-fill Contact Number (user shouldn't change this)
+  params.append(FORM_ENTRIES.CONTACT, userPhone);
+  
+  // MTR and Remarks left empty for user to fill
+  
+  const finalUrl = `${baseUrl}?${params.toString()}`;
+  console.log(`Generated pre-filled form link: ${finalUrl}`);
+  
+  return finalUrl;
+}
+
+// Get user's permitted stores from Store Permission sheet
+async function getUserPermittedStores(phoneNumber) {
+  try {
+    console.log(`Getting permitted stores for phone: ${phoneNumber}`);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Read Store Permission sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STORE_PERMISSION_SHEET_ID,
+      range: 'A:B',
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('No data found in Store Permission sheet');
+      return [];
+    }
+
+    const permittedStores = [];
+    
+    // Clean phone number for comparison (remove country code variations)
+    const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
+    console.log(`Cleaned phone number: ${cleanPhone}`);
+    
+    for (let i = 1; i < rows.length; i++) { // Skip header
+      const row = rows[i];
+      if (!row || !row[0] || !row[1]) continue;
+      
+      const contactNumber = row[0].toString().replace(/^\+91|^91|^0/, '');
+      const storeName = row[1].toString().trim();
+      
+      console.log(`Checking: ${contactNumber} === ${cleanPhone} for store: ${storeName}`);
+      
+      if (contactNumber === cleanPhone) {
+        permittedStores.push(storeName);
+        console.log(`Added permitted store: ${storeName}`);
+      }
+    }
+    
+    console.log(`Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
+    return permittedStores;
+    
+  } catch (error) {
+    console.error('Error getting permitted stores:', error);
+    return [];
+  }
+}
+
+// Enhanced search in all sheets
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -216,7 +319,7 @@ async function searchStockInAllSheets(qualities) {
 
     // Find ALL spreadsheets in the folder
     const folderFiles = await drive.files.list({
-      q: `'${FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      q: `'${STOCK_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
     });
 
@@ -241,7 +344,7 @@ async function searchStockInAllSheets(qualities) {
 
         console.log(`Found ${rows.length} rows in ${file.name}`);
         
-        // IMPROVED: Search for each quality with better matching
+        // Search for each quality with multiple matching strategies
         qualities.forEach(searchQuality => {
           const qualityUpper = searchQuality.toUpperCase().trim();
           const qualityLower = searchQuality.toLowerCase().trim();
@@ -257,7 +360,7 @@ async function searchStockInAllSheets(qualities) {
             const cellQualityUpper = cellQuality.toUpperCase();
             const cellQualityLower = cellQuality.toLowerCase();
             
-            // MULTIPLE MATCHING STRATEGIES
+            // Multiple matching strategies
             if (cellQuality === qualityOriginal || 
                 cellQualityUpper === qualityUpper || 
                 cellQualityLower === qualityLower ||
@@ -322,5 +425,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with improved Stock Query feature!');
+  console.log('✅ Bot ready with Pre-filled Permission-Based Forms!');
+  console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
+  console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
+  console.log(`📋 Static Form ID: ${STATIC_FORM_ID}`);
+  console.log(`📊 Response Sheet ID: ${RESPONSE_SHEET_ID}`);
 });
