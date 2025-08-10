@@ -30,7 +30,7 @@ const RESPONSE_SHEET_NAME = 'submission';
 // Store active forms for response collection
 let activeForms = new Map(); // formId -> {userPhone, createdAt, processed: Set()}
 
-// Google Sheets + Forms authentication
+// FIXED: Google Sheets + Forms authentication with correct scopes
 async function getGoogleAuth() {
   try {
     const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -44,8 +44,16 @@ async function getGoogleAuth() {
     const auth = new google.auth.GoogleAuth({
       credentials: keyData,
       scopes: [
+        // Sheets API scopes
         'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.readonly',
+        
+        // Drive API scopes (required for Forms)
+        'https://www.googleapis.com/auth/drive',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/drive.resource',
+        
+        // Forms API scopes (the missing ones that caused the error!)
+        'https://www.googleapis.com/auth/forms.body',
         'https://www.googleapis.com/auth/forms'
       ],
     });
