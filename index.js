@@ -23,20 +23,14 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 
-// Your static form configuration
-const STATIC_FORM_ID = '1_FQLEIgDnLpaogmn2la0r9RyYzjF0xYFp9l5ZL9HbpU';
-const RESPONSE_SHEET_ID = '1nqILVLotV2CSC55bKq0XifyBRm3wAEhg2xKR4V_EcGU';
+// Central response sheet configuration
+const CENTRAL_RESPONSE_SHEET_ID = '1nqILVLotV2CSC55bKq0XifyBRm3wAEhg2xKR4V_EcGU';
+const RESPONSE_SHEET_NAME = 'submission';
 
-// Form entry IDs extracted from your pre-filled link
-const FORM_ENTRIES = {
-  STORE_NAME: 'entry.1482226385',    // Store Name field
-  QUALITY: 'entry.1437628751',       // Quality field  
-  MTR: 'entry.294266897',            // MTR field
-  REMARKS: 'entry.1263045187',       // Remarks field
-  CONTACT: 'entry.740712049'         // Contact Number field
-};
+// Store active forms for response collection
+let activeForms = new Map(); // formId -> {userPhone, createdAt, processed: Set()}
 
-// Google Sheets authentication (NO FORMS API NEEDED)
+// Google Sheets + Forms authentication
 async function getGoogleAuth() {
   try {
     const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -50,9 +44,9 @@ async function getGoogleAuth() {
     const auth = new google.auth.GoogleAuth({
       credentials: keyData,
       scopes: [
-        'https://www.googleapis.com/auth/spreadsheets.readonly',
-        'https://www.googleapis.com/auth/drive.readonly'
-        // NO Google Forms API scope needed!
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/forms'
       ],
     });
     
@@ -176,7 +170,7 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// ENHANCED: Stock query with pre-filled static form
+// ENHANCED: Stock query with dynamic dropdown forms and central responses
 async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
   try {
     console.log('Processing enhanced stock query for qualities:', qualities);
@@ -207,14 +201,18 @@ async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
       }
     });
     
-    // Add pre-filled form link if user has store permissions
+    // Create dynamic form with REAL dropdowns if user has store permissions
     if (permittedStores.length > 0) {
-      const formUrl = createPreFilledFormLink(qualities, permittedStores, from);
-      responseMessage += `📋 *INQUIRY FORM*\nTo place an inquiry for any of these qualities:\n${formUrl}\n\n`;
-      responseMessage += `*Instructions:*\n`;
-      responseMessage += `• Store Name: Select from "${permittedStores.join(', ')}"\n`;
-      responseMessage += `• Quality: Select from "${qualities.join(', ')}"\n`;
-      responseMessage += `• Fill MTR and Remarks as needed\n\n`;
+      console.log(`Creating dynamic dropdown form for ${from} with stores:`, permittedStores);
+      const formUrl = await createDynamicFormWithCentralResponse(qualities, permittedStores, from);
+      
+      if (formUrl && formUrl !== 'Form creation temporarily unavailable') {
+        responseMessage += `📋 *INQUIRY FORM*\nTo place an inquiry for any of these qualities:\n${formUrl}\n\n`;
+        responseMessage += `*Features:*\n`;
+        responseMessage += `• Store dropdown: Only your permitted stores\n`;
+        responseMessage += `• Quality dropdown: Only searched items\n`;
+        responseMessage += `• All responses saved centrally\n\n`;
+      }
     } else {
       console.log(`No store permissions found for ${from}`);
     }
@@ -229,29 +227,156 @@ async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
   }
 }
 
-// NEW: Create pre-filled static form link with user permissions
-function createPreFilledFormLink(qualities, permittedStores, userPhone) {
-  const baseUrl = `https://docs.google.com/forms/d/${STATIC_FORM_ID}/viewform`;
-  const params = new URLSearchParams();
-  
-  // Pre-fill Store Name with permitted stores (user will pick one)
-  params.append(FORM_ENTRIES.STORE_NAME, `Select from: ${permittedStores.join(', ')}`);
-  
-  // Pre-fill Quality with searched qualities (user will pick one)  
-  params.append(FORM_ENTRIES.QUALITY, `Select from: ${qualities.join(', ')}`);
-  
-  // Pre-fill Contact Number (user shouldn't change this)
-  params.append(FORM_ENTRIES.CONTACT, userPhone);
-  
-  // MTR and Remarks left empty for user to fill
-  
-  const finalUrl = `${baseUrl}?${params.toString()}`;
-  console.log(`Generated pre-filled form link: ${finalUrl}`);
-  
-  return finalUrl;
+// CREATE: Dynamic form with REAL dropdowns and central response collection
+async function createDynamicFormWithCentralResponse(qualities, permittedStores, userPhone) {
+  try {
+    console.log(`Creating dynamic dropdown form for ${userPhone}`);
+    console.log('Permitted stores:', permittedStores);
+    console.log('Searched qualities:', qualities);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const forms = google.forms({ version: 'v1', auth: authClient });
+
+    // Create the form
+    const form = await forms.forms.create({
+      requestBody: {
+        info: {
+          title: `Stock Inquiry - ${userPhone}`,
+          description: `Submit your inquiry for selected qualities.\n\nUser: ${userPhone}\nGenerated: ${new Date().toLocaleString()}`
+        }
+      }
+    });
+
+    const formId = form.data.formId;
+    console.log(`Created dynamic form: ${formId}`);
+
+    // Build form questions with REAL dropdowns
+    const requests = [];
+
+    // 1. Store Name DROPDOWN (ONLY user's permitted stores)
+    requests.push({
+      createItem: {
+        item: {
+          title: 'Store Name',
+          description: 'Select the store you want to inquire about',
+          questionItem: {
+            question: {
+              required: true,
+              choiceQuestion: {
+                type: 'DROP_DOWN',
+                options: permittedStores.map(store => ({ value: store }))
+              }
+            }
+          }
+        },
+        location: { index: 0 }
+      }
+    });
+
+    // 2. Quality DROPDOWN (ONLY searched qualities)
+    requests.push({
+      createItem: {
+        item: {
+          title: 'Quality',
+          description: 'Select the quality you want to inquire about',
+          questionItem: {
+            question: {
+              required: true,
+              choiceQuestion: {
+                type: 'DROP_DOWN',
+                options: qualities.map(quality => ({ value: quality }))
+              }
+            }
+          }
+        },
+        location: { index: 1 }
+      }
+    });
+
+    // 3. MTR (Number input)
+    requests.push({
+      createItem: {
+        item: {
+          title: 'MTR (Meters Required)',
+          description: 'Enter the quantity you need in meters',
+          questionItem: {
+            question: {
+              required: true,
+              textQuestion: {
+                paragraph: false
+              }
+            }
+          }
+        },
+        location: { index: 2 }
+      }
+    });
+
+    // 4. Remarks (Optional text area)
+    requests.push({
+      createItem: {
+        item: {
+          title: 'Remarks',
+          description: 'Any additional notes or requirements (optional)',
+          questionItem: {
+            question: {
+              required: false,
+              textQuestion: {
+                paragraph: true
+              }
+            }
+          }
+        },
+        location: { index: 3 }
+      }
+    });
+
+    // Add all questions to form
+    await forms.forms.batchUpdate({
+      formId: formId,
+      requestBody: {
+        requests: requests
+      }
+    });
+
+    // Configure form settings
+    await forms.forms.batchUpdate({
+      formId: formId,
+      requestBody: {
+        requests: [
+          {
+            updateSettings: {
+              settings: {
+                submitButtonText: 'Submit Inquiry',
+                confirmationMessage: 'Thank you! Your inquiry has been submitted successfully.',
+                allowMultipleResponses: false 
+              },
+              updateMask: 'submitButtonText,confirmationMessage,allowMultipleResponses'
+            }
+          }
+        ]
+      }
+    });
+
+    // Track this form for response collection
+    activeForms.set(formId, {
+      userPhone: userPhone,
+      createdAt: new Date(),
+      processed: new Set() // Track processed response IDs
+    });
+
+    console.log(`✅ Form ${formId} created and tracked for response collection`);
+    
+    return `https://docs.google.com/forms/d/${formId}/viewform`;
+    
+  } catch (error) {
+    console.error('Error creating dynamic dropdown form:', error);
+    return 'Form creation temporarily unavailable';
+  }
 }
 
-// Get user's permitted stores from Store Permission sheet
+// RESPONSE COLLECTION: Get user's permitted stores from Store Permission sheet
 async function getUserPermittedStores(phoneNumber) {
   try {
     console.log(`Getting permitted stores for phone: ${phoneNumber}`);
@@ -302,7 +427,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// Enhanced search in all sheets
+// SEARCH: Enhanced search in all sheets
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -395,6 +520,101 @@ async function searchStockInAllSheets(qualities) {
   }
 }
 
+// COLLECTION: Collect responses from all active forms
+async function collectFormResponses() {
+  try {
+    console.log(`📥 Starting response collection for ${activeForms.size} active forms...`);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const forms = google.forms({ version: 'v1', auth: authClient });
+    
+    let totalCollected = 0;
+    
+    for (const [formId, formInfo] of activeForms) {
+      try {
+        console.log(`Checking form ${formId} for user ${formInfo.userPhone}`);
+        
+        // Get responses from this form
+        const responses = await forms.forms.responses.list({
+          formId: formId
+        });
+
+        if (responses.data.responses && responses.data.responses.length > 0) {
+          console.log(`Found ${responses.data.responses.length} responses in form ${formId}`);
+          
+          for (const response of responses.data.responses) {
+            // Check if this response was already processed
+            if (!formInfo.processed.has(response.responseId)) {
+              await forwardResponseToCentralSheet(response, formInfo.userPhone, formId);
+              formInfo.processed.add(response.responseId);
+              totalCollected++;
+              console.log(`✅ Processed response ${response.responseId}`);
+            } else {
+              console.log(`⏭️  Skipped already processed response ${response.responseId}`);
+            }
+          }
+        } else {
+          console.log(`No responses found in form ${formId}`);
+        }
+        
+      } catch (formError) {
+        console.error(`Error processing form ${formId}:`, formError.message);
+      }
+    }
+    
+    console.log(`📥 Response collection complete. Collected ${totalCollected} new responses.`);
+    
+  } catch (error) {
+    console.error('Error in response collection:', error);
+  }
+}
+
+// FORWARD: Forward response to central submission sheet
+async function forwardResponseToCentralSheet(response, userPhone, formId) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Extract answers from response
+    const answers = response.answers || {};
+    const answersList = Object.values(answers);
+    
+    // Extract values (assuming order: Store Name, Quality, MTR, Remarks)
+    const storeName = answersList[0]?.textAnswers?.answers?.[0]?.value || '';
+    const quality = answersList[1]?.textAnswers?.answers?.[0]?.value || '';
+    const mtr = answersList[2]?.textAnswers?.answers?.[0]?.value || '';
+    const remarks = answersList[3]?.textAnswers?.answers?.[0]?.value || '';
+
+    const values = [
+      new Date().toISOString(),  // A: Timestamp
+      userPhone,                 // B: Contact Number
+      storeName,                 // C: Store Name
+      quality,                   // D: Quality
+      mtr,                       // E: MTR
+      remarks,                   // F: Remarks
+      formId,                    // G: Form ID
+      response.responseId        // H: Response ID (for duplicate prevention)
+    ];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: CENTRAL_RESPONSE_SHEET_ID,
+      range: `${RESPONSE_SHEET_NAME}!A:H`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [values]
+      }
+    });
+
+    console.log(`✅ Forwarded response ${response.responseId} to central submission sheet`);
+    
+  } catch (error) {
+    console.error(`Error forwarding response to central sheet:`, error);
+  }
+}
+
+// WhatsApp message sending
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
     console.log('Sending API request with WEBHOOK DATA:');
@@ -422,12 +642,19 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
   }
 }
 
+// Start response collection interval (every 5 minutes)
+setInterval(collectFormResponses, 5 * 60 * 1000);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Pre-filled Permission-Based Forms!');
+  console.log('✅ Bot ready with Dynamic Dropdown Forms + Central Response Collection!');
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
-  console.log(`📋 Static Form ID: ${STATIC_FORM_ID}`);
-  console.log(`📊 Response Sheet ID: ${RESPONSE_SHEET_ID}`);
+  console.log(`📋 Central Response Sheet ID: ${CENTRAL_RESPONSE_SHEET_ID}`);
+  console.log(`📝 Response Sheet Name: ${RESPONSE_SHEET_NAME}`);
+  console.log('🔄 Response collection will run every 5 minutes');
+  
+  // Initial response collection after 1 minute
+  setTimeout(collectFormResponses, 60 * 1000);
 });
