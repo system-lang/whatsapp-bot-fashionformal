@@ -52,7 +52,7 @@ async function getGoogleAuth() {
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/drive.resource',
         
-        // Forms API scopes (the missing ones that caused the error!)
+        // Forms API scopes (the required ones!)
         'https://www.googleapis.com/auth/forms.body',
         'https://www.googleapis.com/auth/forms'
       ],
@@ -235,7 +235,7 @@ async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
   }
 }
 
-// CREATE: Dynamic form with REAL dropdowns and central response collection
+// FIXED: Create dynamic form with proper Google Forms API usage
 async function createDynamicFormWithCentralResponse(qualities, permittedStores, userPhone) {
   try {
     console.log(`Creating dynamic dropdown form for ${userPhone}`);
@@ -246,12 +246,12 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
     const authClient = await auth.getClient();
     const forms = google.forms({ version: 'v1', auth: authClient });
 
-    // Create the form
+    // STEP 1: Create the form with ONLY title (as per Google's requirement)
     const form = await forms.forms.create({
       requestBody: {
         info: {
-          title: `Stock Inquiry - ${userPhone}`,
-          description: `Submit your inquiry for selected qualities.\n\nUser: ${userPhone}\nGenerated: ${new Date().toLocaleString()}`
+          title: `Stock Inquiry - ${userPhone}`
+          // Remove description - it must be added via batchUpdate
         }
       }
     });
@@ -259,8 +259,19 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
     const formId = form.data.formId;
     console.log(`Created dynamic form: ${formId}`);
 
-    // Build form questions with REAL dropdowns
+    // STEP 2: Add description and all form questions via batchUpdate
     const requests = [];
+
+    // First, update the description
+    requests.push({
+      updateFormInfo: {
+        info: {
+          title: `Stock Inquiry - ${userPhone}`,
+          description: `Submit your inquiry for selected qualities.\n\nUser: ${userPhone}\nGenerated: ${new Date().toLocaleString()}`
+        },
+        updateMask: 'description'
+      }
+    });
 
     // 1. Store Name DROPDOWN (ONLY user's permitted stores)
     requests.push({
@@ -340,7 +351,7 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
       }
     });
 
-    // Add all questions to form
+    // STEP 3: Apply all changes via batchUpdate (description + questions)
     await forms.forms.batchUpdate({
       formId: formId,
       requestBody: {
@@ -348,7 +359,7 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
       }
     });
 
-    // Configure form settings
+    // STEP 4: Configure form settings (separate batchUpdate)
     await forms.forms.batchUpdate({
       formId: formId,
       requestBody: {
@@ -357,10 +368,9 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
             updateSettings: {
               settings: {
                 submitButtonText: 'Submit Inquiry',
-                confirmationMessage: 'Thank you! Your inquiry has been submitted successfully.',
-                allowMultipleResponses: false 
+                confirmationMessage: 'Thank you! Your inquiry has been submitted successfully.'
               },
-              updateMask: 'submitButtonText,confirmationMessage,allowMultipleResponses'
+              updateMask: 'submitButtonText,confirmationMessage'
             }
           }
         ]
