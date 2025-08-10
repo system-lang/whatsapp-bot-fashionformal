@@ -220,6 +220,13 @@ async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
         responseMessage += `• Store dropdown: Only your permitted stores\n`;
         responseMessage += `• Quality dropdown: Only searched items\n`;
         responseMessage += `• All responses saved centrally\n\n`;
+      } else {
+        responseMessage += `📋 *INQUIRY FORM - TEMPORARILY UNAVAILABLE*\n`;
+        responseMessage += `Google Forms API is experiencing issues. Please contact us directly:\n\n`;
+        responseMessage += `📞 *Contact:* ${from}\n`;
+        responseMessage += `🏪 *Your Stores:* ${permittedStores.join(', ')}\n`;
+        responseMessage += `📦 *Qualities:* ${qualities.join(', ')}\n\n`;
+        responseMessage += `We'll create your inquiry manually and get back to you soon!\n\n`;
       }
     } else {
       console.log(`No store permissions found for ${from}`);
@@ -235,34 +242,69 @@ async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
   }
 }
 
-// FIXED: Create dynamic form with proper Google Forms API usage
+// ENHANCED: Create dynamic form with comprehensive debug logging
 async function createDynamicFormWithCentralResponse(qualities, permittedStores, userPhone) {
+  console.log('\n=== 🚀 GOOGLE FORMS API DEBUG SESSION ===');
+  console.log(`📱 User Phone: ${userPhone}`);
+  console.log(`🏪 Permitted Stores: [${permittedStores.join(', ')}]`);
+  console.log(`📦 Searched Qualities: [${qualities.join(', ')}]`);
+  console.log('⏰ Timestamp:', new Date().toISOString());
+  
   try {
-    console.log(`Creating dynamic dropdown form for ${userPhone}`);
-    console.log('Permitted stores:', permittedStores);
-    console.log('Searched qualities:', qualities);
-    
+    // STEP 1: Authentication Test
+    console.log('\n--- STEP 1: Testing Authentication ---');
     const auth = await getGoogleAuth();
+    console.log('✅ Google Auth object created successfully');
+    
     const authClient = await auth.getClient();
+    console.log('✅ Auth client obtained successfully');
+    console.log('🔑 Auth client type:', authClient.constructor.name);
+    
+    // STEP 2: Forms API Client Test
+    console.log('\n--- STEP 2: Testing Forms API Client ---');
     const forms = google.forms({ version: 'v1', auth: authClient });
-
-    // STEP 1: Create the form with ONLY title (as per Google's requirement)
-    const form = await forms.forms.create({
-      requestBody: {
-        info: {
-          title: `Stock Inquiry - ${userPhone}`
-          // Remove description - it must be added via batchUpdate
-        }
+    console.log('✅ Google Forms API client created successfully');
+    console.log('🔗 Forms API endpoint:', 'https://forms.googleapis.com/v1/forms');
+    
+    // STEP 3: Pre-flight Check
+    console.log('\n--- STEP 3: Pre-flight API Check ---');
+    console.log('📋 Preparing form creation request...');
+    console.log('📝 Form title:', `Stock Inquiry - ${userPhone}`);
+    
+    const requestBody = {
+      info: {
+        title: `Stock Inquiry - ${userPhone}`
       }
+    };
+    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
+    
+    // STEP 4: Attempt Form Creation
+    console.log('\n--- STEP 4: Creating Google Form ---');
+    console.log('⚡ Sending CREATE request to Google Forms API...');
+    
+    const startTime = Date.now();
+    
+    const form = await forms.forms.create({
+      requestBody: requestBody
     });
+    
+    const endTime = Date.now();
+    const responseTime = endTime - startTime;
+    
+    console.log(`✅ Form creation SUCCESS! (${responseTime}ms)`);
+    console.log('🆔 Form ID:', form.data.formId);
+    console.log('📊 Form URL:', `https://docs.google.com/forms/d/${form.data.formId}/viewform`);
+    console.log('📋 Full form response:', JSON.stringify(form.data, null, 2));
 
     const formId = form.data.formId;
-    console.log(`Created dynamic form: ${formId}`);
 
-    // STEP 2: Add description and all form questions via batchUpdate
+    // STEP 5: Building Batch Update Requests
+    console.log('\n--- STEP 5: Preparing Batch Updates ---');
+    
     const requests = [];
-
-    // First, update the description
+    
+    // Description update
+    console.log('📝 Adding description update...');
     requests.push({
       updateFormInfo: {
         info: {
@@ -272,8 +314,9 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
         updateMask: 'description'
       }
     });
-
-    // 1. Store Name DROPDOWN (ONLY user's permitted stores)
+    
+    // Store Name dropdown
+    console.log(`🏪 Adding Store Name dropdown with ${permittedStores.length} options...`);
     requests.push({
       createItem: {
         item: {
@@ -293,7 +336,8 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
       }
     });
 
-    // 2. Quality DROPDOWN (ONLY searched qualities)
+    // Quality dropdown
+    console.log(`📦 Adding Quality dropdown with ${qualities.length} options...`);
     requests.push({
       createItem: {
         item: {
@@ -313,7 +357,8 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
       }
     });
 
-    // 3. MTR (Number input)
+    // MTR field
+    console.log('📏 Adding MTR number field...');
     requests.push({
       createItem: {
         item: {
@@ -332,7 +377,8 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
       }
     });
 
-    // 4. Remarks (Optional text area)
+    // Remarks field
+    console.log('💬 Adding Remarks text area...');
     requests.push({
       createItem: {
         item: {
@@ -351,15 +397,32 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
       }
     });
 
-    // STEP 3: Apply all changes via batchUpdate (description + questions)
+    console.log(`📋 Total batch requests prepared: ${requests.length}`);
+    
+    // STEP 6: Apply Batch Updates
+    console.log('\n--- STEP 6: Applying Batch Updates ---');
+    console.log('⚡ Sending BATCH UPDATE request...');
+    
+    const batchStartTime = Date.now();
+    
     await forms.forms.batchUpdate({
       formId: formId,
       requestBody: {
         requests: requests
       }
     });
-
-    // STEP 4: Configure form settings (separate batchUpdate)
+    
+    const batchEndTime = Date.now();
+    const batchResponseTime = batchEndTime - batchStartTime;
+    
+    console.log(`✅ Batch update SUCCESS! (${batchResponseTime}ms)`);
+    
+    // STEP 7: Configure Form Settings
+    console.log('\n--- STEP 7: Configuring Form Settings ---');
+    console.log('⚙️ Setting submit button and confirmation message...');
+    
+    const settingsStartTime = Date.now();
+    
     await forms.forms.batchUpdate({
       formId: formId,
       requestBody: {
@@ -376,20 +439,70 @@ async function createDynamicFormWithCentralResponse(qualities, permittedStores, 
         ]
       }
     });
+    
+    const settingsEndTime = Date.now();
+    const settingsResponseTime = settingsEndTime - settingsStartTime;
+    
+    console.log(`✅ Settings update SUCCESS! (${settingsResponseTime}ms)`);
 
-    // Track this form for response collection
+    // STEP 8: Track Form for Response Collection
+    console.log('\n--- STEP 8: Registering Form for Response Collection ---');
+    
     activeForms.set(formId, {
       userPhone: userPhone,
       createdAt: new Date(),
-      processed: new Set() // Track processed response IDs
+      processed: new Set()
     });
+    
+    console.log(`✅ Form ${formId} registered for response collection`);
+    console.log(`📊 Total active forms: ${activeForms.size}`);
 
-    console.log(`✅ Form ${formId} created and tracked for response collection`);
+    // STEP 9: Final Success Summary
+    console.log('\n--- 🎉 FORM CREATION COMPLETE SUCCESS! ---');
+    const totalTime = Date.now() - startTime;
+    console.log(`⏱️  Total time: ${totalTime}ms`);
+    console.log(`📋 Form ID: ${formId}`);
+    console.log(`🔗 Form URL: https://docs.google.com/forms/d/${formId}/viewform`);
+    console.log('🏪 Store dropdown options:', permittedStores);
+    console.log('📦 Quality dropdown options:', qualities);
+    console.log('=== 🚀 DEBUG SESSION COMPLETE ===\n');
     
     return `https://docs.google.com/forms/d/${formId}/viewform`;
     
   } catch (error) {
-    console.error('Error creating dynamic dropdown form:', error);
+    // COMPREHENSIVE ERROR LOGGING
+    console.log('\n--- ❌ ERROR OCCURRED ---');
+    console.log('🔴 Error type:', error.constructor.name);
+    console.log('🔴 Error message:', error.message);
+    console.log('🔴 Error status:', error.status || 'unknown');
+    console.log('🔴 Error code:', error.code || 'unknown');
+    
+    if (error.response) {
+      console.log('📤 Request details:');
+      console.log('   • URL:', error.response.config?.url);
+      console.log('   • Method:', error.response.config?.method);
+      console.log('   • Body:', error.response.config?.body);
+      
+      console.log('📥 Response details:');
+      console.log('   • Status:', error.response.status);
+      console.log('   • Status Text:', error.response.statusText);
+      console.log('   • Headers:', JSON.stringify(error.response.headers, null, 2));
+      
+      if (error.response.data) {
+        console.log('   • Response Data:', JSON.stringify(error.response.data, null, 2));
+      }
+    }
+    
+    if (error.errors) {
+      console.log('🔴 Detailed errors:');
+      error.errors.forEach((err, index) => {
+        console.log(`   ${index + 1}. ${err.message} (${err.reason})`);
+      });
+    }
+    
+    console.log('🔴 Full error object:', JSON.stringify(error, null, 2));
+    console.log('=== ❌ ERROR DEBUG SESSION COMPLETE ===\n');
+    
     return 'Form creation temporarily unavailable';
   }
 }
