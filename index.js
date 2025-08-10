@@ -21,7 +21,7 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 
 // Google Sheets configuration
 const FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
-const SHEET_NAMES = ['Total FF Stock Ver Dec 24 (JS)', 'Attesse'];
+const SHEET_NAMES = ['Total FF Stock', 'Attesse'];
 
 // Google Sheets authentication
 async function getGoogleAuth() {
