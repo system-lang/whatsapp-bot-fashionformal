@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-bot-fashionformal",
   "version": "1.0.0",
-  "description": "WhatsApp Bot for Fashion Formal with hierarchical menu system",
+  "description": "WhatsApp Bot for Fashion Formal with dynamic forms and central response collection",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
