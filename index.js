@@ -65,6 +65,91 @@ async function getGoogleAuth() {
   }
 }
 
+// NEW: Diagnostic test function
+async function testGoogleFormsAPIConfiguration() {
+  console.log('\n=== 🔧 CONFIGURATION DIAGNOSTIC TEST ===');
+  
+  try {
+    // Test 1: Authentication
+    console.log('1. Testing Authentication...');
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    console.log('✅ Authentication: WORKING');
+    
+    // Test 2: Check Forms API Access
+    console.log('2. Testing Forms API Access...');
+    const forms = google.forms({ version: 'v1', auth: authClient });
+    console.log('✅ Forms API Client: CREATED');
+    
+    // Test 3: Simple API Call (List Forms - less likely to fail)
+    console.log('3. Testing Basic API Call...');
+    
+    // This is a read operation that should work if API is properly configured
+    const testCall = await forms.forms.list({
+      pageSize: 1
+    });
+    console.log('✅ Basic API Call: SUCCESS');
+    console.log('Available forms count:', testCall.data.forms?.length || 0);
+    
+    // Test 4: Check specific permissions for form creation
+    console.log('4. Testing Form Creation Permission...');
+    const testForm = await forms.forms.create({
+      requestBody: {
+        info: {
+          title: 'Test Configuration Form'
+        }
+      }
+    });
+    console.log('✅ Form Creation: SUCCESS');
+    console.log('Test form ID:', testForm.data.formId);
+    
+    // Clean up test form
+    await forms.forms.batchUpdate({
+      formId: testForm.data.formId,
+      requestBody: {
+        requests: [{
+          updateFormInfo: {
+            info: {
+              title: 'Test Configuration Form - DELETE ME'
+            },
+            updateMask: 'title'
+          }
+        }]
+      }
+    });
+    
+    return 'All configuration tests PASSED';
+    
+  } catch (error) {
+    console.log('\n❌ CONFIGURATION ISSUE DETECTED:');
+    
+    if (error.status === 403) {
+      if (error.message.includes('insufficient_scope')) {
+        console.log('🔴 ISSUE: Missing OAuth scopes');
+        console.log('🔧 FIX: Add required Forms API scopes to your service account');
+        console.log('Required scopes: forms.body, forms, drive, drive.file');
+      } else if (error.message.includes('permission')) {
+        console.log('🔴 ISSUE: Service account lacks permissions');
+        console.log('🔧 FIX: Add "Editor" role to service account in IAM');
+      } else {
+        console.log('🔴 ISSUE: Google Forms API access denied');
+        console.log('🔧 FIX: Check service account permissions');
+      }
+    } else if (error.status === 404) {
+      console.log('🔴 ISSUE: Google Forms API endpoint not found');
+      console.log('🔧 FIX: Verify API is properly enabled');
+    } else if (error.status === 500) {
+      console.log('🟡 Status: Configuration appears OK, but Google backend error');
+      console.log('This confirms it\'s Google\'s issue, not your configuration');
+    } else {
+      console.log('🔴 Unexpected error:', error.message);
+    }
+    
+    console.log('\nFull error details:', JSON.stringify(error, null, 2));
+    return `Configuration issue: ${error.message}`;
+  }
+}
+
 app.post('/webhook', async (req, res) => {
   console.log('Full webhook data:', JSON.stringify(req.body, null, 2));
 
@@ -87,6 +172,14 @@ app.post('/webhook', async (req, res) => {
 
   if (trimmedMessage === '') {
     console.log('Empty message after trim - staying silent');
+    return res.sendStatus(200);
+  }
+
+  // NEW: Configuration diagnostic test
+  if (trimmedMessage === '/test-config') {
+    console.log('Running configuration diagnostic test...');
+    const result = await testGoogleFormsAPIConfiguration();
+    await sendWhatsAppMessage(from, `🔧 Configuration test result: ${result}`, productId, phoneId);
     return res.sendStatus(200);
   }
 
