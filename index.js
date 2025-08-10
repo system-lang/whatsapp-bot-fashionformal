@@ -19,9 +19,8 @@ const links = {
 // Your API Token
 const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 
-// Google Sheets configuration - DYNAMIC APPROACH
+// Google Sheets configuration
 const FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
-// Removed SHEET_NAMES array - now discovers dynamically!
 
 // Google Sheets authentication
 async function getGoogleAuth() {
@@ -127,7 +126,7 @@ _Type */* to return to main menu._`;
 Please enter the Quality names you want to search for.
 
 *Multiple qualities:* Separate with commas
-*Example:* Quality1, Quality2, Quality3
+*Example:* LTS8156, Quality2, Quality3
 
 _Type your quality names below:_`;
       
@@ -162,24 +161,32 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// IMPROVED: Dynamic stock query function
+// FIXED: Stock query with better search logic
 async function processStockQuery(from, qualities, productId, phoneId) {
   try {
     console.log('Processing stock query for qualities:', qualities);
     
     // Send processing message
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory across all stores.', productId, phoneId);
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory.', productId, phoneId);
 
     // Search in ALL sheets dynamically
     const stockResults = await searchStockInAllSheets(qualities);
     
-    // Format and send results in professional table format
+    // Format results in CLEAN format (no table)
     let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
     
     qualities.forEach(quality => {
       responseMessage += `🔸 *${quality}*\n`;
-      responseMessage += createProfessionalTable(stockResults[quality] || {});
-      responseMessage += `\n`;
+      
+      const storeData = stockResults[quality] || {};
+      if (Object.keys(storeData).length === 0) {
+        responseMessage += `No data found in any store\n\n`;
+      } else {
+        Object.entries(storeData).forEach(([storeName, stock]) => {
+          responseMessage += `${storeName} -- ${stock}\n`;
+        });
+        responseMessage += `\n`;
+      }
     });
     
     responseMessage += `_Type */* to return to main menu._`;
@@ -192,31 +199,7 @@ async function processStockQuery(from, qualities, productId, phoneId) {
   }
 }
 
-// NEW: Create professional table format
-function createProfessionalTable(storeData) {
-  if (!storeData || Object.keys(storeData).length === 0) {
-    return `┌─────────────────────┬─────────┐
-│ Store Name          │ Stock   │
-├─────────────────────┼─────────┤
-│ No data found       │ N/A     │
-└─────────────────────┴─────────┘\n`;
-  }
-
-  let table = `┌─────────────────────┬─────────┐
-│ Store Name          │ Stock   │
-├─────────────────────┼─────────┤\n`;
-
-  Object.entries(storeData).forEach(([storeName, stock]) => {
-    const paddedStoreName = storeName.padEnd(19).substring(0, 19);
-    const paddedStock = (stock || 'N/A').toString().padEnd(7).substring(0, 7);
-    table += `│ ${paddedStoreName} │ ${paddedStock} │\n`;
-  });
-
-  table += `└─────────────────────┴─────────┘\n`;
-  return table;
-}
-
-// IMPROVED: Dynamic function to search ALL sheets in folder
+// IMPROVED: Better search logic to find LTS8156
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -231,7 +214,7 @@ async function searchStockInAllSheets(qualities) {
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
 
-    // DYNAMIC: Find ALL spreadsheets in the folder
+    // Find ALL spreadsheets in the folder
     const folderFiles = await drive.files.list({
       q: `'${FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -239,37 +222,68 @@ async function searchStockInAllSheets(qualities) {
 
     console.log('Found ALL files in folder:', folderFiles.data.files);
 
-    // Search EVERY sheet found (not just hardcoded ones)
+    // Search EVERY sheet found
     for (const file of folderFiles.data.files) {
       console.log(`Searching in store: ${file.name} (${file.id})`);
 
-      // Get data from columns A and E
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: file.id,
-        range: 'A:E',
-      });
+      try {
+        // Get data from columns A and E
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: file.id,
+          range: 'A:E',
+        });
 
-      const rows = response.data.values;
-      if (!rows || rows.length === 0) continue;
-
-      // Search for each quality
-      qualities.forEach(searchQuality => {
-        const qualityLower = searchQuality.toLowerCase().trim();
-        
-        for (let i = 1; i < rows.length; i++) { // Skip header row
-          const row = rows[i];
-          if (!row || !row[0]) continue;
-          
-          const cellQuality = row[0].toString().toLowerCase().trim();
-          if (cellQuality === qualityLower || cellQuality.includes(qualityLower)) {
-            const stockValue = row[4] ? row[4].toString() : 'N/A';
-            results[searchQuality][file.name] = stockValue;
-            break;
-          }
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+          console.log(`No data found in ${file.name}`);
+          continue;
         }
-      });
+
+        console.log(`Found ${rows.length} rows in ${file.name}`);
+        
+        // IMPROVED: Search for each quality with better matching
+        qualities.forEach(searchQuality => {
+          const qualityUpper = searchQuality.toUpperCase().trim();
+          const qualityLower = searchQuality.toLowerCase().trim();
+          const qualityOriginal = searchQuality.trim();
+          
+          console.log(`Searching for quality: "${searchQuality}" in ${file.name}`);
+          
+          for (let i = 1; i < rows.length; i++) { // Skip header row
+            const row = rows[i];
+            if (!row || !row[0]) continue;
+            
+            const cellQuality = row[0].toString().trim();
+            const cellQualityUpper = cellQuality.toUpperCase();
+            const cellQualityLower = cellQuality.toLowerCase();
+            
+            // MULTIPLE MATCHING STRATEGIES
+            if (cellQuality === qualityOriginal || 
+                cellQualityUpper === qualityUpper || 
+                cellQualityLower === qualityLower ||
+                cellQuality.includes(qualityOriginal) ||
+                cellQualityUpper.includes(qualityUpper) ||
+                cellQualityLower.includes(qualityLower)) {
+              
+              const stockValue = row[4] ? row[4].toString().trim() : '0';
+              console.log(`FOUND MATCH! ${searchQuality} in ${file.name}: ${stockValue}`);
+              results[searchQuality][file.name] = stockValue;
+              break;
+            }
+          }
+          
+          // Log if not found
+          if (!results[searchQuality][file.name]) {
+            console.log(`Quality "${searchQuality}" NOT found in ${file.name}`);
+          }
+        });
+
+      } catch (sheetError) {
+        console.error(`Error accessing sheet ${file.name}:`, sheetError.message);
+      }
     }
 
+    console.log('Final search results:', JSON.stringify(results, null, 2));
     return results;
 
   } catch (error) {
@@ -308,5 +322,5 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Dynamic Stock Query feature!');
+  console.log('✅ Bot ready with improved Stock Query feature!');
 });
