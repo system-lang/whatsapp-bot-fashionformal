@@ -19,9 +19,9 @@ const links = {
 // Your API Token
 const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 
-// Google Sheets configuration
+// Google Sheets configuration - DYNAMIC APPROACH
 const FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
-const SHEET_NAMES = ['Total FF Stock', 'Attesse'];
+// Removed SHEET_NAMES array - now discovers dynamically!
 
 // Google Sheets authentication
 async function getGoogleAuth() {
@@ -162,30 +162,23 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// Function to process stock query
+// IMPROVED: Dynamic stock query function
 async function processStockQuery(from, qualities, productId, phoneId) {
   try {
     console.log('Processing stock query for qualities:', qualities);
     
     // Send processing message
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory.', productId, phoneId);
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory across all stores.', productId, phoneId);
 
-    // Search in both sheets
-    const stockResults = await searchStockInSheets(qualities);
+    // Search in ALL sheets dynamically
+    const stockResults = await searchStockInAllSheets(qualities);
     
-    // Format and send results
+    // Format and send results in professional table format
     let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
     
     qualities.forEach(quality => {
       responseMessage += `🔸 *${quality}*\n`;
-      
-      SHEET_NAMES.forEach(sheetName => {
-        const stock = stockResults[quality] && stockResults[quality][sheetName] 
-          ? stockResults[quality][sheetName] 
-          : 'N/A';
-        responseMessage += `${sheetName} -- ${stock}\n`;
-      });
-      
+      responseMessage += createProfessionalTable(stockResults[quality] || {});
       responseMessage += `\n`;
     });
     
@@ -199,8 +192,32 @@ async function processStockQuery(from, qualities, productId, phoneId) {
   }
 }
 
-// Function to search stock in multiple sheets
-async function searchStockInSheets(qualities) {
+// NEW: Create professional table format
+function createProfessionalTable(storeData) {
+  if (!storeData || Object.keys(storeData).length === 0) {
+    return `┌─────────────────────┬─────────┐
+│ Store Name          │ Stock   │
+├─────────────────────┼─────────┤
+│ No data found       │ N/A     │
+└─────────────────────┴─────────┘\n`;
+  }
+
+  let table = `┌─────────────────────┬─────────┐
+│ Store Name          │ Stock   │
+├─────────────────────┼─────────┤\n`;
+
+  Object.entries(storeData).forEach(([storeName, stock]) => {
+    const paddedStoreName = storeName.padEnd(19).substring(0, 19);
+    const paddedStock = (stock || 'N/A').toString().padEnd(7).substring(0, 7);
+    table += `│ ${paddedStoreName} │ ${paddedStock} │\n`;
+  });
+
+  table += `└─────────────────────┴─────────┘\n`;
+  return table;
+}
+
+// IMPROVED: Dynamic function to search ALL sheets in folder
+async function searchStockInAllSheets(qualities) {
   const results = {};
   
   // Initialize results structure
@@ -214,19 +231,17 @@ async function searchStockInSheets(qualities) {
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
 
-    // Find spreadsheets in the folder
+    // DYNAMIC: Find ALL spreadsheets in the folder
     const folderFiles = await drive.files.list({
       q: `'${FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
     });
 
-    console.log('Found files in folder:', folderFiles.data.files);
+    console.log('Found ALL files in folder:', folderFiles.data.files);
 
-    // Search each sheet
+    // Search EVERY sheet found (not just hardcoded ones)
     for (const file of folderFiles.data.files) {
-      if (!SHEET_NAMES.includes(file.name)) continue;
-
-      console.log(`Searching in sheet: ${file.name} (${file.id})`);
+      console.log(`Searching in store: ${file.name} (${file.id})`);
 
       // Get data from columns A and E
       const response = await sheets.spreadsheets.values.get({
@@ -293,5 +308,5 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Stock Query feature!');
+  console.log('✅ Bot ready with Dynamic Stock Query feature!');
 });
