@@ -23,14 +23,10 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 
-// Central response sheet configuration
-const CENTRAL_RESPONSE_SHEET_ID = '1nqILVLotV2CSC55bKq0XifyBRm3wAEhg2xKR4V_EcGU';
-const RESPONSE_SHEET_NAME = 'submission';
+// Static Google Form configuration
+const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
 
-// Store active forms for response collection
-let activeForms = new Map(); // formId -> {userPhone, createdAt, processed: Set()}
-
-// FIXED: Google Sheets + Forms authentication with correct scopes
+// Google Sheets authentication (only for stock search now)
 async function getGoogleAuth() {
   try {
     const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -44,17 +40,8 @@ async function getGoogleAuth() {
     const auth = new google.auth.GoogleAuth({
       credentials: keyData,
       scopes: [
-        // Sheets API scopes
         'https://www.googleapis.com/auth/spreadsheets',
-        
-        // Drive API scopes (required for Forms)
-        'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/drive.file',
-        'https://www.googleapis.com/auth/drive.resource',
-        
-        // Forms API scopes (the required ones!)
-        'https://www.googleapis.com/auth/forms.body',
-        'https://www.googleapis.com/auth/forms'
+        'https://www.googleapis.com/auth/drive.readonly'
       ],
     });
     
@@ -62,91 +49,6 @@ async function getGoogleAuth() {
   } catch (error) {
     console.error('Error setting up Google auth:', error);
     throw error;
-  }
-}
-
-// NEW: Diagnostic test function
-async function testGoogleFormsAPIConfiguration() {
-  console.log('\n=== 🔧 CONFIGURATION DIAGNOSTIC TEST ===');
-  
-  try {
-    // Test 1: Authentication
-    console.log('1. Testing Authentication...');
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    console.log('✅ Authentication: WORKING');
-    
-    // Test 2: Check Forms API Access
-    console.log('2. Testing Forms API Access...');
-    const forms = google.forms({ version: 'v1', auth: authClient });
-    console.log('✅ Forms API Client: CREATED');
-    
-    // Test 3: Simple API Call (List Forms - less likely to fail)
-    console.log('3. Testing Basic API Call...');
-    
-    // This is a read operation that should work if API is properly configured
-    const testCall = await forms.forms.list({
-      pageSize: 1
-    });
-    console.log('✅ Basic API Call: SUCCESS');
-    console.log('Available forms count:', testCall.data.forms?.length || 0);
-    
-    // Test 4: Check specific permissions for form creation
-    console.log('4. Testing Form Creation Permission...');
-    const testForm = await forms.forms.create({
-      requestBody: {
-        info: {
-          title: 'Test Configuration Form'
-        }
-      }
-    });
-    console.log('✅ Form Creation: SUCCESS');
-    console.log('Test form ID:', testForm.data.formId);
-    
-    // Clean up test form
-    await forms.forms.batchUpdate({
-      formId: testForm.data.formId,
-      requestBody: {
-        requests: [{
-          updateFormInfo: {
-            info: {
-              title: 'Test Configuration Form - DELETE ME'
-            },
-            updateMask: 'title'
-          }
-        }]
-      }
-    });
-    
-    return 'All configuration tests PASSED';
-    
-  } catch (error) {
-    console.log('\n❌ CONFIGURATION ISSUE DETECTED:');
-    
-    if (error.status === 403) {
-      if (error.message.includes('insufficient_scope')) {
-        console.log('🔴 ISSUE: Missing OAuth scopes');
-        console.log('🔧 FIX: Add required Forms API scopes to your service account');
-        console.log('Required scopes: forms.body, forms, drive, drive.file');
-      } else if (error.message.includes('permission')) {
-        console.log('🔴 ISSUE: Service account lacks permissions');
-        console.log('🔧 FIX: Add "Editor" role to service account in IAM');
-      } else {
-        console.log('🔴 ISSUE: Google Forms API access denied');
-        console.log('🔧 FIX: Check service account permissions');
-      }
-    } else if (error.status === 404) {
-      console.log('🔴 ISSUE: Google Forms API endpoint not found');
-      console.log('🔧 FIX: Verify API is properly enabled');
-    } else if (error.status === 500) {
-      console.log('🟡 Status: Configuration appears OK, but Google backend error');
-      console.log('This confirms it\'s Google\'s issue, not your configuration');
-    } else {
-      console.log('🔴 Unexpected error:', error.message);
-    }
-    
-    console.log('\nFull error details:', JSON.stringify(error, null, 2));
-    return `Configuration issue: ${error.message}`;
   }
 }
 
@@ -172,14 +74,6 @@ app.post('/webhook', async (req, res) => {
 
   if (trimmedMessage === '') {
     console.log('Empty message after trim - staying silent');
-    return res.sendStatus(200);
-  }
-
-  // NEW: Configuration diagnostic test
-  if (trimmedMessage === '/test-config') {
-    console.log('Running configuration diagnostic test...');
-    const result = await testGoogleFormsAPIConfiguration();
-    await sendWhatsAppMessage(from, `🔧 Configuration test result: ${result}`, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -260,7 +154,7 @@ _Type your quality names below:_`;
     if (trimmedMessage !== '/') {
       // Process the quality search
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processEnhancedStockQuery(from, qualities, productId, phoneId);
+      await processStockQueryWithStaticForm(from, qualities, productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
@@ -271,19 +165,16 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// ENHANCED: Stock query with dynamic dropdown forms and central responses
-async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
+// SIMPLIFIED: Stock query with static form link
+async function processStockQueryWithStaticForm(from, qualities, productId, phoneId) {
   try {
-    console.log('Processing enhanced stock query for qualities:', qualities);
+    console.log('Processing stock query with static form for qualities:', qualities);
     
     // Send processing message
     await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory.', productId, phoneId);
 
     // Get stock results
     const stockResults = await searchStockInAllSheets(qualities);
-    
-    // Get user's permitted stores
-    const permittedStores = await getUserPermittedStores(from);
     
     // Format stock results
     let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
@@ -302,356 +193,38 @@ async function processEnhancedStockQuery(from, qualities, productId, phoneId) {
       }
     });
     
-    // Create dynamic form with REAL dropdowns if user has store permissions
-    if (permittedStores.length > 0) {
-      console.log(`Creating dynamic dropdown form for ${from} with stores:`, permittedStores);
-      const formUrl = await createDynamicFormWithCentralResponse(qualities, permittedStores, from);
-      
-      if (formUrl && formUrl !== 'Form creation temporarily unavailable') {
-        responseMessage += `📋 *INQUIRY FORM*\nTo place an inquiry for any of these qualities:\n${formUrl}\n\n`;
-        responseMessage += `*Features:*\n`;
-        responseMessage += `• Store dropdown: Only your permitted stores\n`;
-        responseMessage += `• Quality dropdown: Only searched items\n`;
-        responseMessage += `• All responses saved centrally\n\n`;
-      } else {
-        responseMessage += `📋 *INQUIRY FORM - TEMPORARILY UNAVAILABLE*\n`;
-        responseMessage += `Google Forms API is experiencing issues. Please contact us directly:\n\n`;
-        responseMessage += `📞 *Contact:* ${from}\n`;
-        responseMessage += `🏪 *Your Stores:* ${permittedStores.join(', ')}\n`;
-        responseMessage += `📦 *Qualities:* ${qualities.join(', ')}\n\n`;
-        responseMessage += `We'll create your inquiry manually and get back to you soon!\n\n`;
-      }
-    } else {
-      console.log(`No store permissions found for ${from}`);
-    }
+    // Create static form URL with pre-filled contact number
+    const formUrl = createStaticFormWithContact(from);
+    
+    responseMessage += `📋 *INQUIRY FORM*\nTo place an inquiry for any of the above qualities:\n${formUrl}\n\n`;
+    responseMessage += `*Instructions:*\n`;
+    responseMessage += `• Your contact number is already filled\n`;
+    responseMessage += `• Please fill Store Name, Quality, MTR, and Remarks manually\n`;
+    responseMessage += `• Submit the form when complete\n\n`;
     
     responseMessage += `_Type */* to return to main menu._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error processing enhanced stock query:', error);
+    console.error('Error processing stock query:', error);
     await sendWhatsAppMessage(from, '❌ *Error searching stock*\nSorry, there was an issue accessing the inventory data. Please try again later.\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
-// ENHANCED: Create dynamic form with comprehensive debug logging
-async function createDynamicFormWithCentralResponse(qualities, permittedStores, userPhone) {
-  console.log('\n=== 🚀 GOOGLE FORMS API DEBUG SESSION ===');
-  console.log(`📱 User Phone: ${userPhone}`);
-  console.log(`🏪 Permitted Stores: [${permittedStores.join(', ')}]`);
-  console.log(`📦 Searched Qualities: [${qualities.join(', ')}]`);
-  console.log('⏰ Timestamp:', new Date().toISOString());
+// NEW: Create static form URL with pre-filled contact number
+function createStaticFormWithContact(userPhone) {
+  // Clean the phone number for URL encoding
+  const cleanPhone = userPhone.replace(/^\+/, ''); // Remove + if present
   
-  try {
-    // STEP 1: Authentication Test
-    console.log('\n--- STEP 1: Testing Authentication ---');
-    const auth = await getGoogleAuth();
-    console.log('✅ Google Auth object created successfully');
-    
-    const authClient = await auth.getClient();
-    console.log('✅ Auth client obtained successfully');
-    console.log('🔑 Auth client type:', authClient.constructor.name);
-    
-    // STEP 2: Forms API Client Test
-    console.log('\n--- STEP 2: Testing Forms API Client ---');
-    const forms = google.forms({ version: 'v1', auth: authClient });
-    console.log('✅ Google Forms API client created successfully');
-    console.log('🔗 Forms API endpoint:', 'https://forms.googleapis.com/v1/forms');
-    
-    // STEP 3: Pre-flight Check
-    console.log('\n--- STEP 3: Pre-flight API Check ---');
-    console.log('📋 Preparing form creation request...');
-    console.log('📝 Form title:', `Stock Inquiry - ${userPhone}`);
-    
-    const requestBody = {
-      info: {
-        title: `Stock Inquiry - ${userPhone}`
-      }
-    };
-    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
-    
-    // STEP 4: Attempt Form Creation
-    console.log('\n--- STEP 4: Creating Google Form ---');
-    console.log('⚡ Sending CREATE request to Google Forms API...');
-    
-    const startTime = Date.now();
-    
-    const form = await forms.forms.create({
-      requestBody: requestBody
-    });
-    
-    const endTime = Date.now();
-    const responseTime = endTime - startTime;
-    
-    console.log(`✅ Form creation SUCCESS! (${responseTime}ms)`);
-    console.log('🆔 Form ID:', form.data.formId);
-    console.log('📊 Form URL:', `https://docs.google.com/forms/d/${form.data.formId}/viewform`);
-    console.log('📋 Full form response:', JSON.stringify(form.data, null, 2));
-
-    const formId = form.data.formId;
-
-    // STEP 5: Building Batch Update Requests
-    console.log('\n--- STEP 5: Preparing Batch Updates ---');
-    
-    const requests = [];
-    
-    // Description update
-    console.log('📝 Adding description update...');
-    requests.push({
-      updateFormInfo: {
-        info: {
-          title: `Stock Inquiry - ${userPhone}`,
-          description: `Submit your inquiry for selected qualities.\n\nUser: ${userPhone}\nGenerated: ${new Date().toLocaleString()}`
-        },
-        updateMask: 'description'
-      }
-    });
-    
-    // Store Name dropdown
-    console.log(`🏪 Adding Store Name dropdown with ${permittedStores.length} options...`);
-    requests.push({
-      createItem: {
-        item: {
-          title: 'Store Name',
-          description: 'Select the store you want to inquire about',
-          questionItem: {
-            question: {
-              required: true,
-              choiceQuestion: {
-                type: 'DROP_DOWN',
-                options: permittedStores.map(store => ({ value: store }))
-              }
-            }
-          }
-        },
-        location: { index: 0 }
-      }
-    });
-
-    // Quality dropdown
-    console.log(`📦 Adding Quality dropdown with ${qualities.length} options...`);
-    requests.push({
-      createItem: {
-        item: {
-          title: 'Quality',
-          description: 'Select the quality you want to inquire about',
-          questionItem: {
-            question: {
-              required: true,
-              choiceQuestion: {
-                type: 'DROP_DOWN',
-                options: qualities.map(quality => ({ value: quality }))
-              }
-            }
-          }
-        },
-        location: { index: 1 }
-      }
-    });
-
-    // MTR field
-    console.log('📏 Adding MTR number field...');
-    requests.push({
-      createItem: {
-        item: {
-          title: 'MTR (Meters Required)',
-          description: 'Enter the quantity you need in meters',
-          questionItem: {
-            question: {
-              required: true,
-              textQuestion: {
-                paragraph: false
-              }
-            }
-          }
-        },
-        location: { index: 2 }
-      }
-    });
-
-    // Remarks field
-    console.log('💬 Adding Remarks text area...');
-    requests.push({
-      createItem: {
-        item: {
-          title: 'Remarks',
-          description: 'Any additional notes or requirements (optional)',
-          questionItem: {
-            question: {
-              required: false,
-              textQuestion: {
-                paragraph: true
-              }
-            }
-          }
-        },
-        location: { index: 3 }
-      }
-    });
-
-    console.log(`📋 Total batch requests prepared: ${requests.length}`);
-    
-    // STEP 6: Apply Batch Updates
-    console.log('\n--- STEP 6: Applying Batch Updates ---');
-    console.log('⚡ Sending BATCH UPDATE request...');
-    
-    const batchStartTime = Date.now();
-    
-    await forms.forms.batchUpdate({
-      formId: formId,
-      requestBody: {
-        requests: requests
-      }
-    });
-    
-    const batchEndTime = Date.now();
-    const batchResponseTime = batchEndTime - batchStartTime;
-    
-    console.log(`✅ Batch update SUCCESS! (${batchResponseTime}ms)`);
-    
-    // STEP 7: Configure Form Settings
-    console.log('\n--- STEP 7: Configuring Form Settings ---');
-    console.log('⚙️ Setting submit button and confirmation message...');
-    
-    const settingsStartTime = Date.now();
-    
-    await forms.forms.batchUpdate({
-      formId: formId,
-      requestBody: {
-        requests: [
-          {
-            updateSettings: {
-              settings: {
-                submitButtonText: 'Submit Inquiry',
-                confirmationMessage: 'Thank you! Your inquiry has been submitted successfully.'
-              },
-              updateMask: 'submitButtonText,confirmationMessage'
-            }
-          }
-        ]
-      }
-    });
-    
-    const settingsEndTime = Date.now();
-    const settingsResponseTime = settingsEndTime - settingsStartTime;
-    
-    console.log(`✅ Settings update SUCCESS! (${settingsResponseTime}ms)`);
-
-    // STEP 8: Track Form for Response Collection
-    console.log('\n--- STEP 8: Registering Form for Response Collection ---');
-    
-    activeForms.set(formId, {
-      userPhone: userPhone,
-      createdAt: new Date(),
-      processed: new Set()
-    });
-    
-    console.log(`✅ Form ${formId} registered for response collection`);
-    console.log(`📊 Total active forms: ${activeForms.size}`);
-
-    // STEP 9: Final Success Summary
-    console.log('\n--- 🎉 FORM CREATION COMPLETE SUCCESS! ---');
-    const totalTime = Date.now() - startTime;
-    console.log(`⏱️  Total time: ${totalTime}ms`);
-    console.log(`📋 Form ID: ${formId}`);
-    console.log(`🔗 Form URL: https://docs.google.com/forms/d/${formId}/viewform`);
-    console.log('🏪 Store dropdown options:', permittedStores);
-    console.log('📦 Quality dropdown options:', qualities);
-    console.log('=== 🚀 DEBUG SESSION COMPLETE ===\n');
-    
-    return `https://docs.google.com/forms/d/${formId}/viewform`;
-    
-  } catch (error) {
-    // COMPREHENSIVE ERROR LOGGING
-    console.log('\n--- ❌ ERROR OCCURRED ---');
-    console.log('🔴 Error type:', error.constructor.name);
-    console.log('🔴 Error message:', error.message);
-    console.log('🔴 Error status:', error.status || 'unknown');
-    console.log('🔴 Error code:', error.code || 'unknown');
-    
-    if (error.response) {
-      console.log('📤 Request details:');
-      console.log('   • URL:', error.response.config?.url);
-      console.log('   • Method:', error.response.config?.method);
-      console.log('   • Body:', error.response.config?.body);
-      
-      console.log('📥 Response details:');
-      console.log('   • Status:', error.response.status);
-      console.log('   • Status Text:', error.response.statusText);
-      console.log('   • Headers:', JSON.stringify(error.response.headers, null, 2));
-      
-      if (error.response.data) {
-        console.log('   • Response Data:', JSON.stringify(error.response.data, null, 2));
-      }
-    }
-    
-    if (error.errors) {
-      console.log('🔴 Detailed errors:');
-      error.errors.forEach((err, index) => {
-        console.log(`   ${index + 1}. ${err.message} (${err.reason})`);
-      });
-    }
-    
-    console.log('🔴 Full error object:', JSON.stringify(error, null, 2));
-    console.log('=== ❌ ERROR DEBUG SESSION COMPLETE ===\n');
-    
-    return 'Form creation temporarily unavailable';
-  }
+  // Create URL with pre-filled contact number
+  const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}`;
+  
+  console.log(`✅ Created static form URL with pre-filled contact: ${cleanPhone}`);
+  return formUrl;
 }
 
-// RESPONSE COLLECTION: Get user's permitted stores from Store Permission sheet
-async function getUserPermittedStores(phoneNumber) {
-  try {
-    console.log(`Getting permitted stores for phone: ${phoneNumber}`);
-    
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-
-    // Read Store Permission sheet
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: STORE_PERMISSION_SHEET_ID,
-      range: 'A:B',
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      console.log('No data found in Store Permission sheet');
-      return [];
-    }
-
-    const permittedStores = [];
-    
-    // Clean phone number for comparison (remove country code variations)
-    const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
-    console.log(`Cleaned phone number: ${cleanPhone}`);
-    
-    for (let i = 1; i < rows.length; i++) { // Skip header
-      const row = rows[i];
-      if (!row || !row[0] || !row[1]) continue;
-      
-      const contactNumber = row[0].toString().replace(/^\+91|^91|^0/, '');
-      const storeName = row[1].toString().trim();
-      
-      console.log(`Checking: ${contactNumber} === ${cleanPhone} for store: ${storeName}`);
-      
-      if (contactNumber === cleanPhone) {
-        permittedStores.push(storeName);
-        console.log(`Added permitted store: ${storeName}`);
-      }
-    }
-    
-    console.log(`Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
-    return permittedStores;
-    
-  } catch (error) {
-    console.error('Error getting permitted stores:', error);
-    return [];
-  }
-}
-
-// SEARCH: Enhanced search in all sheets
+// Enhanced search in all sheets (keeping existing function)
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -744,101 +317,6 @@ async function searchStockInAllSheets(qualities) {
   }
 }
 
-// COLLECTION: Collect responses from all active forms
-async function collectFormResponses() {
-  try {
-    console.log(`📥 Starting response collection for ${activeForms.size} active forms...`);
-    
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const forms = google.forms({ version: 'v1', auth: authClient });
-    
-    let totalCollected = 0;
-    
-    for (const [formId, formInfo] of activeForms) {
-      try {
-        console.log(`Checking form ${formId} for user ${formInfo.userPhone}`);
-        
-        // Get responses from this form
-        const responses = await forms.forms.responses.list({
-          formId: formId
-        });
-
-        if (responses.data.responses && responses.data.responses.length > 0) {
-          console.log(`Found ${responses.data.responses.length} responses in form ${formId}`);
-          
-          for (const response of responses.data.responses) {
-            // Check if this response was already processed
-            if (!formInfo.processed.has(response.responseId)) {
-              await forwardResponseToCentralSheet(response, formInfo.userPhone, formId);
-              formInfo.processed.add(response.responseId);
-              totalCollected++;
-              console.log(`✅ Processed response ${response.responseId}`);
-            } else {
-              console.log(`⏭️  Skipped already processed response ${response.responseId}`);
-            }
-          }
-        } else {
-          console.log(`No responses found in form ${formId}`);
-        }
-        
-      } catch (formError) {
-        console.error(`Error processing form ${formId}:`, formError.message);
-      }
-    }
-    
-    console.log(`📥 Response collection complete. Collected ${totalCollected} new responses.`);
-    
-  } catch (error) {
-    console.error('Error in response collection:', error);
-  }
-}
-
-// FORWARD: Forward response to central submission sheet
-async function forwardResponseToCentralSheet(response, userPhone, formId) {
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-
-    // Extract answers from response
-    const answers = response.answers || {};
-    const answersList = Object.values(answers);
-    
-    // Extract values (assuming order: Store Name, Quality, MTR, Remarks)
-    const storeName = answersList[0]?.textAnswers?.answers?.[0]?.value || '';
-    const quality = answersList[1]?.textAnswers?.answers?.[0]?.value || '';
-    const mtr = answersList[2]?.textAnswers?.answers?.[0]?.value || '';
-    const remarks = answersList[3]?.textAnswers?.answers?.[0]?.value || '';
-
-    const values = [
-      new Date().toISOString(),  // A: Timestamp
-      userPhone,                 // B: Contact Number
-      storeName,                 // C: Store Name
-      quality,                   // D: Quality
-      mtr,                       // E: MTR
-      remarks,                   // F: Remarks
-      formId,                    // G: Form ID
-      response.responseId        // H: Response ID (for duplicate prevention)
-    ];
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: CENTRAL_RESPONSE_SHEET_ID,
-      range: `${RESPONSE_SHEET_NAME}!A:H`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [values]
-      }
-    });
-
-    console.log(`✅ Forwarded response ${response.responseId} to central submission sheet`);
-    
-  } catch (error) {
-    console.error(`Error forwarding response to central sheet:`, error);
-  }
-}
-
-// WhatsApp message sending
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
     console.log('Sending API request with WEBHOOK DATA:');
@@ -866,19 +344,11 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
   }
 }
 
-// Start response collection interval (every 5 minutes)
-setInterval(collectFormResponses, 5 * 60 * 1000);
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Dynamic Dropdown Forms + Central Response Collection!');
+  console.log('✅ Bot ready with Static Google Form + Pre-filled Contact!');
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
-  console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
-  console.log(`📋 Central Response Sheet ID: ${CENTRAL_RESPONSE_SHEET_ID}`);
-  console.log(`📝 Response Sheet Name: ${RESPONSE_SHEET_NAME}`);
-  console.log('🔄 Response collection will run every 5 minutes');
-  
-  // Initial response collection after 1 minute
-  setTimeout(collectFormResponses, 60 * 1000);
+  console.log(`📋 Static Form URL: ${STATIC_FORM_BASE_URL}`);
+  console.log('🎯 Using static form with pre-filled contact number only');
 });
