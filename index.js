@@ -26,7 +26,7 @@ const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE'
 // Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
 
-// Google Sheets authentication (only for stock search now)
+// Google Sheets authentication
 async function getGoogleAuth() {
   try {
     const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -154,7 +154,7 @@ _Type your quality names below:_`;
     if (trimmedMessage !== '/') {
       // Process the quality search
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processStockQueryWithPermissionBasedForms(from, qualities, productId, phoneId);
+      await processStockQueryWithPersonalizedInstructions(from, qualities, productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
@@ -165,13 +165,13 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// NEW: Stock query with permission-based pre-filled forms
-async function processStockQueryWithPermissionBasedForms(from, qualities, productId, phoneId) {
+// NEW: Stock query with personalized instructions
+async function processStockQueryWithPersonalizedInstructions(from, qualities, productId, phoneId) {
   try {
-    console.log('Processing stock query with permission-based forms for qualities:', qualities);
+    console.log('Processing stock query with personalized instructions');
     
     // Send processing message
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory and your store permissions.', productId, phoneId);
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory and your permissions.', productId, phoneId);
 
     // Get stock results
     const stockResults = await searchStockInAllSheets(qualities);
@@ -201,41 +201,34 @@ async function processStockQueryWithPermissionBasedForms(from, qualities, produc
       responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
       responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
       responseMessage += `📞 Please contact administration at *system@fashionformal.com* to get store access permissions.\n\n`;
-      responseMessage += `_Type */* to return to main menu._`;
+    } else {
+      // Create single form URL with clear instructions
+      const cleanPhone = from.replace(/^\+/, '');
+      const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}`;
       
-      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
-      return;
+      responseMessage += `📋 *INQUIRY FORM*\n${formUrl}\n\n`;
+      
+      responseMessage += `🔒 *IMPORTANT - YOUR AUTHORIZED STORES ONLY:*\n`;
+      permittedStores.forEach((store, index) => {
+        responseMessage += `${index + 1}. ${store}\n`;
+      });
+      
+      responseMessage += `\n⚠️ *CRITICAL INSTRUCTIONS:*\n`;
+      responseMessage += `• Your contact number is already filled in the form\n`;
+      responseMessage += `• In the "Store Name" dropdown, you can ONLY select from the ${permittedStores.length} stores listed above\n`;
+      responseMessage += `• If you select any other store, your submission will be automatically rejected\n`;
+      responseMessage += `• Fill Quality, MTR, and Remarks as needed\n\n`;
+      
+      responseMessage += `🛡️ *Security Note:*\n`;
+      responseMessage += `Our system will automatically validate your store selection and block any unauthorized submissions.\n\n`;
     }
-    
-    // Create personalized forms for each permitted store
-    responseMessage += `📋 *INQUIRY FORMS - SELECT YOUR STORE:*\n\n`;
-    responseMessage += `✅ *Your Authorized Stores:*\n`;
-    
-    permittedStores.forEach((store, index) => {
-      const cleanPhone = from.replace(/^\+/, ''); // Remove + if present
-      
-      // Create form URL with pre-filled contact number AND store name
-      const storeFormUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&entry.1482226385=${encodeURIComponent(store)}`;
-      
-      responseMessage += `\n🏪 *${index + 1}. ${store}*\n`;
-      responseMessage += `${storeFormUrl}\n`;
-    });
-    
-    responseMessage += `\n📋 *How to use:*\n`;
-    responseMessage += `• Each form link above is pre-filled with your contact number and specific store\n`;
-    responseMessage += `• You only need to fill: Quality, MTR, and Remarks\n`;
-    responseMessage += `• You can ONLY use the forms listed above\n`;
-    responseMessage += `• Forms for other stores will not work for your number\n\n`;
-    
-    responseMessage += `🔒 *Security Note:*\n`;
-    responseMessage += `These forms are personalized for your contact number (${from}) and cannot be used by others.\n\n`;
     
     responseMessage += `_Type */* to return to main menu._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error processing stock query with permissions:', error);
+    console.error('Error processing stock query:', error);
     await sendWhatsAppMessage(from, '❌ *Error searching stock*\nSorry, there was an issue accessing the inventory data. Please try again later.\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
@@ -291,7 +284,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// Enhanced search in all sheets (keeping existing function)
+// Enhanced search in all sheets
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -414,9 +407,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Permission-Based Pre-filled Forms!');
+  console.log('✅ Bot ready with Personalized Instructions + Single Form!');
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`📋 Static Form URL: ${STATIC_FORM_BASE_URL}`);
-  console.log('🎯 Using permission-based pre-filled forms - NO unauthorized access possible!');
+  console.log('🎯 Using single form with personalized user instructions!');
 });
