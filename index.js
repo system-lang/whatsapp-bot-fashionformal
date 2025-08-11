@@ -154,7 +154,7 @@ _Type your quality names below:_`;
     if (trimmedMessage !== '/') {
       // Process the quality search
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processStockQueryWithStaticForm(from, qualities, productId, phoneId);
+      await processStockQueryWithPermissionBasedForms(from, qualities, productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
@@ -165,16 +165,19 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// SIMPLIFIED: Stock query with static form link
-async function processStockQueryWithStaticForm(from, qualities, productId, phoneId) {
+// NEW: Stock query with permission-based pre-filled forms
+async function processStockQueryWithPermissionBasedForms(from, qualities, productId, phoneId) {
   try {
-    console.log('Processing stock query with static form for qualities:', qualities);
+    console.log('Processing stock query with permission-based forms for qualities:', qualities);
     
     // Send processing message
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory.', productId, phoneId);
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory and your store permissions.', productId, phoneId);
 
     // Get stock results
     const stockResults = await searchStockInAllSheets(qualities);
+    
+    // Get user's permitted stores
+    const permittedStores = await getUserPermittedStores(from);
     
     // Format stock results
     let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
@@ -193,35 +196,99 @@ async function processStockQueryWithStaticForm(from, qualities, productId, phone
       }
     });
     
-    // Create static form URL with pre-filled contact number
-    const formUrl = createStaticFormWithContact(from);
+    // Check if user has store permissions
+    if (permittedStores.length === 0) {
+      responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
+      responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
+      responseMessage += `📞 Please contact administration at *system@fashionformal.com* to get store access permissions.\n\n`;
+      responseMessage += `_Type */* to return to main menu._`;
+      
+      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+      return;
+    }
     
-    responseMessage += `📋 *INQUIRY FORM*\nTo place an inquiry for any of the above qualities:\n${formUrl}\n\n`;
-    responseMessage += `*Instructions:*\n`;
-    responseMessage += `• Your contact number is already filled\n`;
-    responseMessage += `• Please fill Store Name, Quality, MTR, and Remarks manually\n`;
-    responseMessage += `• Submit the form when complete\n\n`;
+    // Create personalized forms for each permitted store
+    responseMessage += `📋 *INQUIRY FORMS - SELECT YOUR STORE:*\n\n`;
+    responseMessage += `✅ *Your Authorized Stores:*\n`;
+    
+    permittedStores.forEach((store, index) => {
+      const cleanPhone = from.replace(/^\+/, ''); // Remove + if present
+      
+      // Create form URL with pre-filled contact number AND store name
+      const storeFormUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&entry.1482226385=${encodeURIComponent(store)}`;
+      
+      responseMessage += `\n🏪 *${index + 1}. ${store}*\n`;
+      responseMessage += `${storeFormUrl}\n`;
+    });
+    
+    responseMessage += `\n📋 *How to use:*\n`;
+    responseMessage += `• Each form link above is pre-filled with your contact number and specific store\n`;
+    responseMessage += `• You only need to fill: Quality, MTR, and Remarks\n`;
+    responseMessage += `• You can ONLY use the forms listed above\n`;
+    responseMessage += `• Forms for other stores will not work for your number\n\n`;
+    
+    responseMessage += `🔒 *Security Note:*\n`;
+    responseMessage += `These forms are personalized for your contact number (${from}) and cannot be used by others.\n\n`;
     
     responseMessage += `_Type */* to return to main menu._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error processing stock query:', error);
+    console.error('Error processing stock query with permissions:', error);
     await sendWhatsAppMessage(from, '❌ *Error searching stock*\nSorry, there was an issue accessing the inventory data. Please try again later.\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
-// NEW: Create static form URL with pre-filled contact number
-function createStaticFormWithContact(userPhone) {
-  // Clean the phone number for URL encoding
-  const cleanPhone = userPhone.replace(/^\+/, ''); // Remove + if present
-  
-  // Create URL with pre-filled contact number
-  const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}`;
-  
-  console.log(`✅ Created static form URL with pre-filled contact: ${cleanPhone}`);
-  return formUrl;
+// Get user's permitted stores from Store Permission sheet
+async function getUserPermittedStores(phoneNumber) {
+  try {
+    console.log(`Getting permitted stores for phone: ${phoneNumber}`);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Read Store Permission sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STORE_PERMISSION_SHEET_ID,
+      range: 'A:B',
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('No data found in Store Permission sheet');
+      return [];
+    }
+
+    const permittedStores = [];
+    
+    // Clean phone number for comparison (remove country code variations)
+    const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
+    console.log(`Cleaned phone number: ${cleanPhone}`);
+    
+    for (let i = 1; i < rows.length; i++) { // Skip header
+      const row = rows[i];
+      if (!row || !row[0] || !row[1]) continue;
+      
+      const contactNumber = row[0].toString().replace(/^\+91|^91|^0/, '');
+      const storeName = row[1].toString().trim();
+      
+      console.log(`Checking: ${contactNumber} === ${cleanPhone} for store: ${storeName}`);
+      
+      if (contactNumber === cleanPhone) {
+        permittedStores.push(storeName);
+        console.log(`Added permitted store: ${storeName}`);
+      }
+    }
+    
+    console.log(`Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
+    return permittedStores;
+    
+  } catch (error) {
+    console.error('Error getting permitted stores:', error);
+    return [];
+  }
 }
 
 // Enhanced search in all sheets (keeping existing function)
@@ -347,8 +414,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Static Google Form + Pre-filled Contact!');
+  console.log('✅ Bot ready with Permission-Based Pre-filled Forms!');
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
+  console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`📋 Static Form URL: ${STATIC_FORM_BASE_URL}`);
-  console.log('🎯 Using static form with pre-filled contact number only');
+  console.log('🎯 Using permission-based pre-filled forms - NO unauthorized access possible!');
 });
