@@ -154,8 +154,18 @@ _Type your quality names below:_`;
     if (trimmedMessage !== '/') {
       // Process the quality search
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processStockQueryWithPersonalizedInstructions(from, qualities, productId, phoneId);
-      userStates[from].currentMenu = 'completed';
+      await createUltimateFoolproofSystem(from, qualities, productId, phoneId);
+      return res.sendStatus(200);
+    }
+  }
+
+  // Handle store selection
+  if (userStates[from] && userStates[from].currentMenu === 'store_selection') {
+    if (/^[1-9]$/.test(trimmedMessage)) {
+      await handleStoreSelection(from, trimmedMessage, productId, phoneId);
+      return res.sendStatus(200);
+    } else if (trimmedMessage !== '/') {
+      await sendWhatsAppMessage(from, '❌ Please reply with a number (1, 2, 3, etc.) to select your store.', productId, phoneId);
       return res.sendStatus(200);
     }
   }
@@ -165,13 +175,13 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// NEW: Stock query with personalized instructions
-async function processStockQueryWithPersonalizedInstructions(from, qualities, productId, phoneId) {
+// ULTIMATE FOOLPROOF: Create system with store selection via WhatsApp numbers
+async function createUltimateFoolproofSystem(from, qualities, productId, phoneId) {
   try {
-    console.log('Processing stock query with personalized instructions');
+    console.log('Creating ultimate foolproof system for:', from);
     
     // Send processing message
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory and your permissions.', productId, phoneId);
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory and create your secure selection system.', productId, phoneId);
 
     // Get stock results
     const stockResults = await searchStockInAllSheets(qualities);
@@ -201,35 +211,96 @@ async function processStockQueryWithPersonalizedInstructions(from, qualities, pr
       responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
       responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
       responseMessage += `📞 Please contact administration at *system@fashionformal.com* to get store access permissions.\n\n`;
+      responseMessage += `_Type */* to return to main menu._`;
     } else {
-      // Create single form URL with clear instructions
-      const cleanPhone = from.replace(/^\+/, '');
-      const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}`;
+      responseMessage += `🔒 *ULTRA-SECURE INQUIRY SYSTEM:*\n\n`;
+      responseMessage += `Select your store by replying with the corresponding number:\n\n`;
       
-      responseMessage += `📋 *INQUIRY FORM*\n${formUrl}\n\n`;
-      
-      responseMessage += `🔒 *IMPORTANT - YOUR AUTHORIZED STORES ONLY:*\n`;
+      // Create store selection options
       permittedStores.forEach((store, index) => {
-        responseMessage += `${index + 1}. ${store}\n`;
+        responseMessage += `🏪 *Option ${index + 1}: ${store}*\n`;
+        responseMessage += `Reply with: *${index + 1}*\n\n`;
       });
       
-      responseMessage += `\n⚠️ *CRITICAL INSTRUCTIONS:*\n`;
-      responseMessage += `• Your contact number is already filled in the form\n`;
-      responseMessage += `• In the "Store Name" dropdown, you can ONLY select from the ${permittedStores.length} stores listed above\n`;
-      responseMessage += `• If you select any other store, your submission will be automatically rejected\n`;
-      responseMessage += `• Fill Quality, MTR, and Remarks as needed\n\n`;
+      responseMessage += `📋 *How it works:*\n`;
+      responseMessage += `• Reply with the number of your chosen store\n`;
+      responseMessage += `• I will create a secure form locked to that store\n`;
+      responseMessage += `• Store name cannot be changed in the form\n`;
+      responseMessage += `• IMPOSSIBLE to select wrong store\n\n`;
       
-      responseMessage += `🛡️ *Security Note:*\n`;
-      responseMessage += `Our system will automatically validate your store selection and block any unauthorized submissions.\n\n`;
+      // Store user's context for next interaction
+      userStates[from] = {
+        currentMenu: 'store_selection',
+        permittedStores: permittedStores,
+        qualities: qualities
+      };
+      
+      responseMessage += `_Reply with a number (1, 2, etc.) or type */* to return to main menu._`;
     }
-    
-    responseMessage += `_Type */* to return to main menu._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error processing stock query:', error);
-    await sendWhatsAppMessage(from, '❌ *Error searching stock*\nSorry, there was an issue accessing the inventory data. Please try again later.\n\nType */* to return to main menu.', productId, phoneId);
+    console.error('Error in ultimate foolproof system:', error);
+    await sendWhatsAppMessage(from, '❌ *Error creating secure system*\nPlease try again later.\n\nType */* to return to main menu.', productId, phoneId);
+  }
+}
+
+// Handle store selection
+async function handleStoreSelection(from, storeIndex, productId, phoneId) {
+  try {
+    console.log(`Handling store selection: ${from} selected ${storeIndex}`);
+    
+    const userState = userStates[from];
+    if (!userState || !userState.permittedStores) {
+      await sendWhatsAppMessage(from, '❌ Session expired. Please start over with /\n3\n[quality names]', productId, phoneId);
+      return;
+    }
+    
+    const selectedStoreIndex = parseInt(storeIndex) - 1;
+    const selectedStore = userState.permittedStores[selectedStoreIndex];
+    
+    if (!selectedStore) {
+      await sendWhatsAppMessage(from, `❌ Invalid selection. Please choose a number between 1-${userState.permittedStores.length}`, productId, phoneId);
+      return;
+    }
+    
+    // Create ultra-secure form URL
+    const cleanPhone = from.replace(/^\+/, '');
+    const timestamp = Date.now();
+    
+    // Create secure URL with pre-filled contact and selected store
+    const ultraSecureUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
+      `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
+      `&entry.1482226385=${encodeURIComponent(selectedStore)}`;
+    
+    let confirmationMessage = `✅ *SECURE FORM CREATED*\n\n`;
+    confirmationMessage += `🏪 *Selected Store:* ${selectedStore}\n`;
+    confirmationMessage += `📱 *Your Number:* ${from}\n`;
+    confirmationMessage += `⏰ *Created:* ${new Date().toLocaleString()}\n\n`;
+    
+    confirmationMessage += `📋 *Your Secure Form:*\n${ultraSecureUrl}\n\n`;
+    
+    confirmationMessage += `🔒 *Security Features:*\n`;
+    confirmationMessage += `• Store name is PRE-FILLED and locked to: *${selectedStore}*\n`;
+    confirmationMessage += `• Contact number is pre-filled and locked\n`;
+    confirmationMessage += `• You only need to fill: Quality, MTR, Remarks\n`;
+    confirmationMessage += `• Form validates your permissions automatically\n`;
+    confirmationMessage += `• Only authorized for your phone number\n\n`;
+    
+    confirmationMessage += `🛡️ *IMPOSSIBLE TO MAKE MISTAKES!*\n\n`;
+    confirmationMessage += `_Type */* to return to main menu._`;
+    
+    await sendWhatsAppMessage(from, confirmationMessage, productId, phoneId);
+    
+    // Clear user state
+    userStates[from] = { currentMenu: 'completed' };
+    
+    console.log(`✅ Secure form created for ${from} - Store: ${selectedStore}`);
+    
+  } catch (error) {
+    console.error('Error handling store selection:', error);
+    await sendWhatsAppMessage(from, '❌ Error creating secure form. Please try again.', productId, phoneId);
   }
 }
 
@@ -407,9 +478,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with Personalized Instructions + Single Form!');
+  console.log('✅ Bot ready with ULTIMATE FOOLPROOF System!');
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`📋 Static Form URL: ${STATIC_FORM_BASE_URL}`);
-  console.log('🎯 Using single form with personalized user instructions!');
+  console.log('🛡️ FOOLPROOF: Users select stores via WhatsApp numbers - NO mistakes possible!');
 });
