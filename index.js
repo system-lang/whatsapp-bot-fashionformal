@@ -152,14 +152,14 @@ _Type your quality names below:_`;
   // Handle stock query input
   if (userStates[from] && userStates[from].currentMenu === 'stock_query') {
     if (trimmedMessage !== '/') {
-      // Process the quality search
+      // Process the quality search with full visibility
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await createUltimateFoolproofSystem(from, qualities, productId, phoneId);
+      await processStockQueryWithFullVisibility(from, qualities, productId, phoneId);
       return res.sendStatus(200);
     }
   }
 
-  // Handle store selection
+  // Handle store selection for ordering
   if (userStates[from] && userStates[from].currentMenu === 'store_selection') {
     if (/^[1-9]$/.test(trimmedMessage)) {
       await handleStoreSelection(from, trimmedMessage, productId, phoneId);
@@ -175,22 +175,23 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// ULTIMATE FOOLPROOF: Create system with store selection via WhatsApp numbers
-async function createUltimateFoolproofSystem(from, qualities, productId, phoneId) {
+// NEW: Stock query with FULL visibility but restricted ordering
+async function processStockQueryWithFullVisibility(from, qualities, productId, phoneId) {
   try {
-    console.log('Creating ultimate foolproof system for:', from);
+    console.log('Processing stock query with full visibility for:', from);
     
     // Send processing message
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait while I check our inventory and create your secure selection system.', productId, phoneId);
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information across ALL stores...*\nPlease wait while I check complete inventory and your ordering permissions.', productId, phoneId);
 
-    // Get stock results
+    // Get stock results from ALL stores (no filtering)
     const stockResults = await searchStockInAllSheets(qualities);
     
-    // Get user's permitted stores
+    // Get user's permitted stores for order placement only
     const permittedStores = await getUserPermittedStores(from);
     
-    // Format stock results
-    let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
+    // Format stock results - SHOW ALL STORES
+    let responseMessage = `📊 *COMPLETE STOCK QUERY RESULTS*\n`;
+    responseMessage += `_Displaying inventory from all stores in the system_\n\n`;
     
     qualities.forEach(quality => {
       responseMessage += `🔸 *${quality}*\n`;
@@ -200,53 +201,54 @@ async function createUltimateFoolproofSystem(from, qualities, productId, phoneId
         responseMessage += `No data found in any store\n\n`;
       } else {
         Object.entries(storeData).forEach(([storeName, stock]) => {
+          // Show ALL stores with stock levels - no filtering
           responseMessage += `${storeName} -- ${stock}\n`;
         });
         responseMessage += `\n`;
       }
     });
     
-    // Check if user has store permissions
+    // Order placement section
+    responseMessage += `📋 *ORDER PLACEMENT OPTIONS:*\n\n`;
+    
     if (permittedStores.length === 0) {
       responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
-      responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
+      responseMessage += `You can see stock from all stores above, but your contact number (${from}) is not authorized to place orders from any store.\n\n`;
       responseMessage += `📞 Please contact administration at *system@fashionformal.com* to get store access permissions.\n\n`;
       responseMessage += `_Type */* to return to main menu._`;
     } else {
-      responseMessage += `🔒 *ULTRA-SECURE INQUIRY SYSTEM:*\n\n`;
-      responseMessage += `Select your store by replying with the corresponding number:\n\n`;
+      responseMessage += `✅ *You can place orders from these stores only:*\n\n`;
       
-      // Create store selection options
       permittedStores.forEach((store, index) => {
+        // Show only stores user can order from
         responseMessage += `🏪 *Option ${index + 1}: ${store}*\n`;
         responseMessage += `Reply with: *${index + 1}*\n\n`;
       });
       
-      responseMessage += `📋 *How it works:*\n`;
-      responseMessage += `• Reply with the number of your chosen store\n`;
-      responseMessage += `• I will create a secure form locked to that store\n`;
-      responseMessage += `• Store name cannot be changed in the form\n`;
-      responseMessage += `• IMPOSSIBLE to select wrong store\n\n`;
+      responseMessage += `📋 *Important Notes:*\n`;
+      responseMessage += `• You can see stock levels from ALL stores above\n`;
+      responseMessage += `• You can ONLY place orders from the ${permittedStores.length} stores listed above\n`;
+      responseMessage += `• Select a store number to create your secure order form\n\n`;
       
-      // Store user's context for next interaction
+      // Store user's context for order placement
       userStates[from] = {
         currentMenu: 'store_selection',
         permittedStores: permittedStores,
         qualities: qualities
       };
       
-      responseMessage += `_Reply with a number (1, 2, etc.) or type */* to return to main menu._`;
+      responseMessage += `_Reply with a number (1, 2, etc.) to place an order, or type */* for main menu._`;
     }
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error in ultimate foolproof system:', error);
-    await sendWhatsAppMessage(from, '❌ *Error creating secure system*\nPlease try again later.\n\nType */* to return to main menu.', productId, phoneId);
+    console.error('Error processing full visibility stock query:', error);
+    await sendWhatsAppMessage(from, '❌ *Error searching stock*\nPlease try again later.\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
-// Handle store selection
+// Handle store selection for secure form creation
 async function handleStoreSelection(from, storeIndex, productId, phoneId) {
   try {
     console.log(`Handling store selection: ${from} selected ${storeIndex}`);
@@ -265,30 +267,29 @@ async function handleStoreSelection(from, storeIndex, productId, phoneId) {
       return;
     }
     
-    // Create ultra-secure form URL
+    // Create form URL WITHOUT store field - store tracked in form title/description
     const cleanPhone = from.replace(/^\+/, '');
-    const timestamp = Date.now();
     
-    // Create secure URL with pre-filled contact and selected store
-    const ultraSecureUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
+    // Create secure URL with pre-filled contact and NO store field in form
+    const secureFormUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
       `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
-      `&entry.1482226385=${encodeURIComponent(selectedStore)}`;
+      `&store=${encodeURIComponent(selectedStore)}`;
     
-    let confirmationMessage = `✅ *SECURE FORM CREATED*\n\n`;
+    let confirmationMessage = `✅ *SECURE ORDER FORM CREATED*\n\n`;
     confirmationMessage += `🏪 *Selected Store:* ${selectedStore}\n`;
-    confirmationMessage += `📱 *Your Number:* ${from}\n`;
+    confirmationMessage += `📱 *Your Number:* ${cleanPhone}\n`;
     confirmationMessage += `⏰ *Created:* ${new Date().toLocaleString()}\n\n`;
     
-    confirmationMessage += `📋 *Your Secure Form:*\n${ultraSecureUrl}\n\n`;
+    confirmationMessage += `📋 *Your Secure Form:*\n${secureFormUrl}\n\n`;
     
     confirmationMessage += `🔒 *Security Features:*\n`;
-    confirmationMessage += `• Store name is PRE-FILLED and locked to: *${selectedStore}*\n`;
-    confirmationMessage += `• Contact number is pre-filled and locked\n`;
+    confirmationMessage += `• Form is locked to: *${selectedStore}* only\n`;
+    confirmationMessage += `• Contact number is pre-filled and secured\n`;
     confirmationMessage += `• You only need to fill: Quality, MTR, Remarks\n`;
-    confirmationMessage += `• Form validates your permissions automatically\n`;
-    confirmationMessage += `• Only authorized for your phone number\n\n`;
+    confirmationMessage += `• NO store field in form = NO way to change selection\n`;
+    confirmationMessage += `• Backend validation prevents unauthorized submissions\n\n`;
     
-    confirmationMessage += `🛡️ *IMPOSSIBLE TO MAKE MISTAKES!*\n\n`;
+    confirmationMessage += `🛡️ *IMPOSSIBLE TO PLACE ORDERS FROM WRONG STORE!*\n\n`;
     confirmationMessage += `_Type */* to return to main menu._`;
     
     await sendWhatsAppMessage(from, confirmationMessage, productId, phoneId);
@@ -355,7 +356,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// Enhanced search in all sheets
+// Enhanced search in ALL sheets (no filtering)
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -378,7 +379,7 @@ async function searchStockInAllSheets(qualities) {
 
     console.log('Found ALL files in folder:', folderFiles.data.files);
 
-    // Search EVERY sheet found
+    // Search EVERY sheet found - no filtering
     for (const file of folderFiles.data.files) {
       console.log(`Searching in store: ${file.name} (${file.id})`);
 
@@ -478,9 +479,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with ULTIMATE FOOLPROOF System!');
+  console.log('✅ Bot ready with FULL STOCK VISIBILITY + Restricted Ordering!');
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`📋 Static Form URL: ${STATIC_FORM_BASE_URL}`);
-  console.log('🛡️ FOOLPROOF: Users select stores via WhatsApp numbers - NO mistakes possible!');
+  console.log('🎯 Users see ALL stock data but can only order from permitted stores!');
 });
