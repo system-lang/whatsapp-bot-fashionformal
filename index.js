@@ -2,6 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
+const PDFDocument = require('pdfkit'); // NEW: PDF generation
+const fs = require('fs');
+const path = require('path');
 const app = express();
 
 app.use(express.json());
@@ -73,7 +76,7 @@ async function getGoogleAuth() {
   }
 }
 
-// FINAL FIX: Handle JavaScript number conversion properly
+// Get user greeting from Greetings sheet
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`Getting greeting for phone: ${phoneNumber}`);
@@ -158,7 +161,7 @@ async function getUserGreeting(phoneNumber) {
       return null;
     }
 
-    // FIXED: Clean phone number variations (remove duplicates and fix length issue)
+    // Clean phone number variations (remove duplicates and fix length issue)
     const phoneVariations = Array.from(new Set([
       phoneNumber,
       phoneNumber.replace(/^\+91/, ''),
@@ -171,7 +174,7 @@ async function getUserGreeting(phoneNumber) {
     
     console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
     
-    // FINAL FIX: Handle JavaScript numbers and field mapping correctly
+    // Handle JavaScript numbers and field mapping correctly
     for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
       if (!row || row.length === 0) {
@@ -179,7 +182,7 @@ async function getUserGreeting(phoneNumber) {
         continue;
       }
       
-      // FIXED: Safely convert contact to string (handle JavaScript numbers)
+      // Safely convert contact to string (handle JavaScript numbers)
       let sheetContact;
       try {
         const contactCell = row[0];
@@ -205,7 +208,7 @@ async function getUserGreeting(phoneNumber) {
         continue;
       }
       
-      // CORRECTED: Proper field mapping based on your sheet structure
+      // Proper field mapping based on your sheet structure
       // Your sheet: Contact Number | Name | Salutation | Greetings
       const name = row[1] ? row[1].toString().trim() : '';
       const salutation = row[2] ? row[2].toString().trim() : '';
@@ -264,6 +267,356 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
+// NEW: Enhanced Smart Stock Search with Partial Matching
+async function searchStockWithPartialMatch(searchTerms) {
+  const results = {};
+  
+  // Initialize results for each search term
+  searchTerms.forEach(term => {
+    results[term] = [];
+  });
+
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    // Get all stock files
+    const folderFiles = await drive.files.list({
+      q: `'${STOCK_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    console.log(`Found ${folderFiles.data.files.length} stock files for smart search`);
+
+    // Search through each stock file
+    for (const file of folderFiles.data.files) {
+      console.log(`Smart searching in: ${file.name}`);
+      
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: file.id,
+          range: 'A:E',
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+          console.log(`No data in ${file.name}`);
+          continue;
+        }
+        
+        // Search each row for partial matches
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row[0]) continue;
+          
+          const qualityCode = row.toString().trim();
+          const stockValue = row[4] ? row[4].toString().trim() : '0';
+          
+          // Check each search term for partial matches
+          searchTerms.forEach(searchTerm => {
+            const cleanSearchTerm = searchTerm.trim();
+            
+            // SMART SEARCH: Check if search term is contained anywhere in quality code
+            if (cleanSearchTerm.length >= 5 && qualityCode.includes(cleanSearchTerm)) {
+              console.log(`📍 PARTIAL MATCH: "${cleanSearchTerm}" found in "${qualityCode}" at ${file.name}`);
+              
+              results[searchTerm].push({
+                qualityCode: qualityCode,
+                stock: stockValue,
+                store: file.name,
+                searchTerm: cleanSearchTerm
+              });
+            }
+          });
+        }
+
+      } catch (sheetError) {
+        console.error(`Error accessing stock sheet ${file.name}:`, sheetError.message);
+      }
+    }
+
+    return results;
+
+  } catch (error) {
+    console.error('Error in smart stock search:', error);
+    throw error;
+  }
+}
+
+// NEW: Generate PDF for stock results
+async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
+  try {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const filename = `stock_results_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
+    const filepath = path.join(__dirname, 'temp', filename);
+    
+    // Ensure temp directory exists
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const doc = new PDFDocument({
+      margin: 50,
+      size: 'A4'
+    });
+
+    // Create write stream
+    const stream = fs.createWriteStream(filepath);
+    doc.pipe(stream);
+
+    // Header
+    doc.fontSize(20)
+       .font('Helvetica-Bold')
+       .text('Stock Query Results', { align: 'center' });
+    
+    doc.moveDown(0.5);
+    
+    doc.fontSize(12)
+       .font('Helvetica')
+       .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
+       .text(`Search Terms: ${searchTerms.join(', ')}`)
+       .text(`Phone: ${phoneNumber}`)
+       .moveDown();
+
+    // Results
+    let totalResults = 0;
+    
+    searchTerms.forEach(term => {
+      const termResults = searchResults[term] || [];
+      totalResults += termResults.length;
+      
+      if (termResults.length > 0) {
+        doc.fontSize(16)
+           .font('Helvetica-Bold')
+           .text(`Search: "${term}" (${termResults.length} results)`, { underline: true });
+        
+        doc.moveDown(0.5);
+        
+        // Group by store
+        const storeGroups = {};
+        termResults.forEach(result => {
+          if (!storeGroups[result.store]) {
+            storeGroups[result.store] = [];
+          }
+          storeGroups[result.store].push(result);
+        });
+        
+        Object.entries(storeGroups).forEach(([store, items]) => {
+          doc.fontSize(14)
+             .font('Helvetica-Bold')
+             .text(store);
+          
+          doc.fontSize(11)
+             .font('Helvetica');
+          
+          items.forEach(item => {
+            doc.text(`  ${item.qualityCode} — Stock: ${item.stock}`);
+          });
+          
+          doc.moveDown(0.5);
+        });
+        
+        doc.moveDown();
+      }
+    });
+
+    // Footer
+    if (totalResults === 0) {
+      doc.fontSize(14)
+         .font('Helvetica')
+         .text('No matching results found.', { align: 'center' });
+      doc.text('Try different search terms or contact support.', { align: 'center' });
+    } else {
+      doc.fontSize(10)
+         .font('Helvetica')
+         .text(`Total Results: ${totalResults}`, { align: 'right' });
+    }
+
+    doc.end();
+
+    // Wait for PDF to be created
+    await new Promise((resolve, reject) => {
+      stream.on('finish', resolve);
+      stream.on('error', reject);
+    });
+
+    return { filepath, filename, totalResults };
+
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    throw error;
+  }
+}
+
+// NEW: Send file via WhatsApp API
+async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
+  try {
+    // Note: This is a placeholder - you'll need to upload the file to a publicly accessible URL
+    // and then send the link via WhatsApp. Most WhatsApp APIs support document sending.
+    
+    console.log(`Would send file ${filename} to ${to}`);
+    console.log(`File location: ${filepath}`);
+    
+    // For now, we'll send a message with download instructions
+    const fileSize = fs.statSync(filepath).size;
+    const fileSizeKB = Math.round(fileSize / 1024);
+    
+    const message = `📄 *Stock Results Generated*
+
+📊 File: ${filename}
+📏 Size: ${fileSizeKB} KB
+
+🔗 Your detailed stock results have been generated as a PDF.
+
+*To download:*
+Contact system administrator with this reference: ${filename}
+
+_Type */menu* for main menu._`;
+    
+    await sendWhatsAppMessage(to, message, productId, phoneId);
+    
+  } catch (error) {
+    console.error('Error sending file:', error);
+    throw error;
+  }
+}
+
+// NEW: Enhanced Smart Stock Query with Partial Matching and PDF Generation
+async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
+  try {
+    console.log('Processing SMART stock query for:', from);
+    console.log('Search terms:', searchTerms);
+    
+    // Validate search terms (minimum 5 digits)
+    const validTerms = searchTerms.filter(term => {
+      const cleanTerm = term.replace(/[^0-9]/g, '');
+      return cleanTerm.length >= 5;
+    });
+    
+    if (validTerms.length === 0) {
+      await sendWhatsAppMessage(from, `❌ *Invalid Search*
+
+Please provide at least 5 digits for searching.
+
+*Examples:*
+- 11010 (finds 11010088471-001)
+- 10088 (finds 11010088471-001) 
+- 88471 (finds 11010088471-001)
+
+_Type */menu* for main menu._`, productId, phoneId);
+      return;
+    }
+    
+    await sendWhatsAppMessage(from, `🔍 *Smart Stock Search*
+
+Searching for: ${validTerms.join(', ')}
+
+⏳ Please wait while I search all stock sheets...`, productId, phoneId);
+
+    // Perform smart search
+    const searchResults = await searchStockWithPartialMatch(validTerms);
+    const permittedStores = await getUserPermittedStores(from);
+    
+    console.log(`Smart search completed for ${from}`);
+    
+    // Count total results
+    let totalResults = 0;
+    validTerms.forEach(term => {
+      totalResults += (searchResults[term] || []).length;
+    });
+    
+    console.log(`Total results found: ${totalResults}`);
+    
+    if (totalResults === 0) {
+      // No results found
+      const noResultsMessage = `❌ *No Results Found*
+
+No stock items found containing:
+${validTerms.map(term => `• ${term}`).join('\n')}
+
+*Try:*
+- Different digit combinations
+- Shorter search terms (5+ digits)
+- Contact support for assistance
+
+_Type */menu* for main menu._`;
+      
+      await sendWhatsAppMessage(from, noResultsMessage, productId, phoneId);
+      return;
+    }
+    
+    // Decide: WhatsApp message vs PDF
+    if (totalResults <= 15) {
+      // SHORT LIST: Send as WhatsApp message
+      let responseMessage = `🎯 *Smart Search Results*\n\n`;
+      
+      validTerms.forEach(term => {
+        const termResults = searchResults[term] || [];
+        if (termResults.length > 0) {
+          responseMessage += `*"${term}" (${termResults.length} found)*\n`;
+          
+          termResults.forEach(result => {
+            responseMessage += `${result.store}: ${result.qualityCode} — ${result.stock}\n`;
+          });
+          responseMessage += `\n`;
+        }
+      });
+      
+      // Add ordering options if user has permissions
+      if (permittedStores.length > 0) {
+        responseMessage += `📋 *Place Orders*\n\n`;
+        
+        if (permittedStores.length === 1) {
+          const cleanPhone = from.replace(/^\+/, '');
+          const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
+          responseMessage += `*Your Store:* ${permittedStores}\n${formUrl}\n\n`;
+        } else {
+          responseMessage += `*Your Stores:*\n`;
+          permittedStores.forEach((store, index) => {
+            responseMessage += `${index + 1}. ${store}\n`;
+          });
+          responseMessage += `\nReply with store number to get order form.\n\n`;
+        }
+      }
+      
+      responseMessage += `_Type */menu* for main menu._`;
+      
+      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+      
+    } else {
+      // LONG LIST: Generate PDF
+      try {
+        const pdfResult = await generateStockPDF(searchResults, validTerms, from);
+        
+        const summaryMessage = `📊 *Large Results Found*
+
+🔍 Search: ${validTerms.join(', ')}
+📈 Total Results: ${totalResults} items
+📄 PDF Generated: ${pdfResult.filename}
+
+*Results are too long for WhatsApp*
+📋 Detailed PDF report has been generated.`;
+        
+        await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
+        
+        // Send the PDF file
+        await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId);
+        
+      } catch (pdfError) {
+        console.error('PDF generation failed:', pdfError);
+        await sendWhatsAppMessage(from, `❌ *Error Generating PDF*\n\nFound ${totalResults} results but couldn't generate PDF.\nPlease contact support.\n\n_Type */menu* for main menu._`, productId, phoneId);
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error in smart stock query:', error);
+    await sendWhatsAppMessage(from, `❌ *Search Error*\n\nUnable to complete search.\nPlease try again later.\n\n_Type */menu* for main menu._`, productId, phoneId);
+  }
+}
+
 // Debug permission sheet with proper API handling
 async function debugPermissionSheet(phoneNumber) {
   try {
@@ -299,7 +652,7 @@ async function debugPermissionSheet(phoneNumber) {
         continue;
       }
       
-      const columnA = row[0] ? row.toString().trim() : '';
+      const columnA = row[0] ? row[0].toString().trim() : '';
       const columnB = row[1] ? row[1].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
@@ -312,7 +665,7 @@ async function debugPermissionSheet(phoneNumber) {
       if (columnA.includes(',')) {
         console.log(`  Malformed data detected in Column A`);
         const parts = columnA.split(',');
-        extractedPhone = parts.trim();
+        extractedPhone = parts[0].trim();
         extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
       } else {
         extractedPhone = columnA;
@@ -404,22 +757,29 @@ _Type the number or use shortcuts..._`;
     return res.sendStatus(200);
   }
 
-  // NEW: Direct Stock Query shortcut with greeting
+  // ENHANCED: Direct Stock Query shortcut with greeting and smart search
   if (lowerMessage === '/stock') {
     console.log('Direct stock query shortcut used');
-    userStates[from] = { currentMenu: 'stock_query' };
+    userStates[from] = { currentMenu: 'smart_stock_query' };
     
     // Get user greeting
     const greeting = await getUserGreeting(from);
     
-    const stockQueryPrompt = `*STOCK QUERY*
+    const stockQueryPrompt = `*SMART STOCK QUERY* 🔍
 
-Please enter the Quality names you want to search for.
+Enter any 5+ digit code that appears in the stock quality names:
 
-*Multiple qualities:* Separate with commas
-*Example:* LTS8156, ETCH8029, Quality3
+*Examples:*
+• 11010 → finds 11010088471-001
+• 10088 → finds 11010088471-001  
+• 88471 → finds 11010088471-001
 
-_Type your quality names below:_`;
+*Multiple searches:* Separate with commas
+*Example:* 11010, 20055, 88471
+
+_Smart search will find partial matches!_
+
+Type your search digits below:`;
     
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -530,15 +890,23 @@ _Type the number to continue..._`;
     }
 
     if (trimmedMessage === '3') {
-      userStates[from].currentMenu = 'stock_query';
-      const stockQueryPrompt = `*STOCK QUERY*
+      userStates[from] = { currentMenu: 'smart_stock_query' };
+      
+      const stockQueryPrompt = `*SMART STOCK QUERY* 🔍
 
-Please enter the Quality names you want to search for.
+Enter any 5+ digit code that appears in the stock quality names:
 
-*Multiple qualities:* Separate with commas
-*Example:* LTS8156, ETCH8029, Quality3
+*Examples:*
+• 11010 → finds 11010088471-001
+• 10088 → finds 11010088471-001  
+• 88471 → finds 11010088471-001
 
-_Type your quality names below:_`;
+*Multiple searches:* Separate with commas
+*Example:* 11010, 20055, 88471
+
+_Smart search will find partial matches!_
+
+Type your search digits below:`;
       
       await sendWhatsAppMessage(from, stockQueryPrompt, productId, phoneId);
       return res.sendStatus(200);
@@ -590,11 +958,12 @@ _Type your quality names below:_`;
     }
   }
 
-  // Handle stock query input
-  if (userStates[from] && userStates[from].currentMenu === 'stock_query') {
+  // NEW: Handle smart stock query input
+  if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
     if (trimmedMessage !== '/menu') {
-      const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processStockQueryWithSmartStoreSelection(from, qualities, productId, phoneId);
+      const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
+      await processSmartStockQuery(from, searchTerms, productId, phoneId);
+      userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
   }
@@ -610,8 +979,6 @@ _Type your quality names below:_`;
   console.log('Normal message received - bot staying silent:', trimmedMessage);
   return res.sendStatus(200);
 });
-
-// [Include all remaining functions: processOrderQuery, searchOrderStatus, etc. - they remain unchanged]
 
 // Process order query
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
@@ -758,7 +1125,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[4] ? row[4].toString().trim() : 'Date not available';
+        const dispatchDate = row[5] ? row[5].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -842,89 +1209,6 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// ENHANCED: Smart stock query with auto single store selection
-async function processStockQueryWithSmartStoreSelection(from, qualities, productId, phoneId) {
-  try {
-    console.log('Processing stock query with smart store selection for:', from);
-    
-    await sendWhatsAppMessage(from, '*Searching stock information...*\n\nPlease wait.', productId, phoneId);
-
-    const stockResults = await searchStockInAllSheets(qualities);
-    const permittedStores = await getUserPermittedStores(from);
-    
-    console.log(`Stock search completed. User ${from} has ${permittedStores.length} permitted stores:`, permittedStores);
-    
-    let responseMessage = `*STOCK QUERY RESULTS*\n\n`;
-    
-    // Display stock results
-    qualities.forEach(quality => {
-      responseMessage += `*${quality}*\n`;
-      
-      const storeData = stockResults[quality] || {};
-      if (Object.keys(storeData).length === 0) {
-        responseMessage += `No data found\n\n`;
-      } else {
-        Object.entries(storeData).forEach(([storeName, stock]) => {
-          responseMessage += `${storeName} -- ${stock}\n`;
-        });
-        responseMessage += `\n`;
-      }
-    });
-    
-    if (permittedStores.length === 0) {
-      // No permission - show error message
-      responseMessage += `*NO ORDERING PERMISSION*\n\n`;
-      responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
-      responseMessage += `*Contact:* system@fashionformal.com\n\n`;
-      responseMessage += `*Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
-      responseMessage += `_Type */menu* for main menu._`;
-      
-    } else if (permittedStores.length === 1) {
-      // SMART: Single store - auto-generate form directly
-      const singleStore = permittedStores[0];
-      const cleanPhone = from.replace(/^\+/, '');
-      
-      const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
-        `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
-        `&store=${encodeURIComponent(singleStore)}`;
-      
-      responseMessage += `*PLACE ORDER*\n\n`;
-      responseMessage += `*Your Store:* ${singleStore}\n\n`;
-      responseMessage += `${formUrl}\n\n`;
-      responseMessage += `_Order form ready - just fill quality, MTR, and remarks._\n\n`;
-      responseMessage += `_Type */menu* for main menu._`;
-      
-      // Set user state to completed since form is provided
-      userStates[from] = { currentMenu: 'completed' };
-      
-    } else {
-      // Multiple stores - show selection options
-      responseMessage += `*PLACE MULTIPLE ORDERS:*\n\n`;
-      responseMessage += `*Format:* Quality-StoreNumber, Quality-StoreNumber\n`;
-      responseMessage += `*Example:* LTS8156-1, ETCH8029-2\n\n`;
-      
-      responseMessage += `*Your Store Numbers:*\n`;
-      permittedStores.forEach((store, index) => {
-        responseMessage += `${index + 1}. ${store}\n`;
-      });
-      
-      responseMessage += `\nReply with combinations or single store number for all items.`;
-      
-      userStates[from] = {
-        currentMenu: 'multiple_order_selection',
-        permittedStores: permittedStores,
-        qualities: qualities
-      };
-    }
-    
-    await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
-    
-  } catch (error) {
-    console.error('Error in stock query:', error);
-    await sendWhatsAppMessage(from, 'Error searching stock\n\nType */menu* to return to main menu.', productId, phoneId);
-  }
-}
-
 // Get user permitted stores with proper API handling
 async function getUserPermittedStores(phoneNumber) {
   try {
@@ -975,7 +1259,7 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetContact = '';
       let sheetStore = '';
       
-      const columnAValue = row[0] ? row.toString().trim() : '';
+      const columnAValue = row[0] ? row[0].toString().trim() : '';
       const columnBValue = row[1] ? row[1].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
@@ -1024,83 +1308,6 @@ async function getUserPermittedStores(phoneNumber) {
   } catch (error) {
     console.error('Error getting permitted stores:', error);
     return [];
-  }
-}
-
-// Search stock in all sheets
-async function searchStockInAllSheets(qualities) {
-  const results = {};
-  
-  qualities.forEach(quality => {
-    results[quality] = {};
-  });
-
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const drive = google.drive({ version: 'v3', auth: authClient });
-
-    const folderFiles = await drive.files.list({
-      q: `'${STOCK_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name)'
-    });
-
-    console.log('Found stock files:', folderFiles.data.files.length);
-
-    for (const file of folderFiles.data.files) {
-      console.log(`Searching in stock sheet: ${file.name}`);
-      
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: file.id,
-          range: 'A:E',
-        });
-
-        const rows = response.data.values;
-        if (!rows || rows.length === 0) {
-          console.log(`No data in ${file.name}`);
-          continue;
-        }
-        
-        qualities.forEach(searchQuality => {
-          const qualityUpper = searchQuality.toUpperCase().trim();
-          const qualityLower = searchQuality.toLowerCase().trim();
-          const qualityOriginal = searchQuality.trim();
-          
-          for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            if (!row[0]) continue;
-            
-            const cellQuality = row.toString().trim();
-            const cellQualityUpper = cellQuality.toUpperCase();
-            const cellQualityLower = cellQuality.toLowerCase();
-            
-            if (cellQuality === qualityOriginal || 
-                cellQualityUpper === qualityUpper || 
-                cellQualityLower === qualityLower ||
-                cellQuality.includes(qualityOriginal) ||
-                cellQualityUpper.includes(qualityUpper) ||
-                cellQualityLower.includes(qualityLower)) {
-              
-              const stockValue = row[4] ? row[5].toString().trim() : '0';
-              console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
-              results[searchQuality][file.name] = stockValue;
-              break;
-            }
-          }
-        });
-
-      } catch (sheetError) {
-        console.error(`Error accessing stock sheet ${file.name}:`, sheetError.message);
-      }
-    }
-
-    return results;
-
-  } catch (error) {
-    console.error('Error searching stock sheets:', error);
-    throw error;
   }
 }
 
@@ -1243,13 +1450,12 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with FINAL WORKING greetings (JavaScript number handling)');
-  console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
-  console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
-  console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
-  console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
-  console.log(`Greetings Sheet ID: ${GREETINGS_SHEET_ID} (Greetings tab)`);
-  console.log('FINAL FIX: JavaScript number handling + scientific notation prevention');
+  console.log('🚀 Bot ready with SMART STOCK SEARCH and PDF generation!');
+  console.log('✨ New Features:');
+  console.log('🔍 Smart partial matching (5+ digits anywhere in quality code)');
+  console.log('📄 Automatic PDF generation for large results (>15 items)');
+  console.log('⚡ Fast substring search across all stock sheets');
+  console.log('📊 Smart output: WhatsApp text vs PDF based on result count');
+  console.log('🎯 User-friendly examples and error handling');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('Debug command: /debuggreet - Test greeting functionality');
 });
