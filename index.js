@@ -199,7 +199,7 @@ async function getUserGreeting(phoneNumber) {
       let sheetContact, name, salutation, greetings;
       
       // FIXED: Handle both formats properly
-      if (row.length >= 4 && row[1] && row[1] && row && !row.toString().includes(',')) {
+      if (row.length >= 4 && row[1] && row[2] && row[3] && !row.toString().includes(',')) {
         // Normal format
         const contactCell = row;
         if (typeof contactCell === 'number') {
@@ -449,7 +449,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   }
 }
 
-// FIXED: Send file via Railway file serving endpoint
+// UPDATED: Send file via Railway file serving endpoint with your URL
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
   try {
     console.log(`Preparing download link for: ${filename}`);
@@ -458,11 +458,8 @@ async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
     const fileStats = fs.statSync(filepath);
     const fileSizeKB = Math.round(fileStats.size / 1024);
     
-    // Create download URL using Railway's provided URL
-    // UPDATE THIS WITH YOUR ACTUAL RAILWAY URL
-    const baseUrl = process.env.RAILWAY_STATIC_URL || 
-                   process.env.PUBLIC_URL || 
-                   'https://whatsapp-bot-production-XXXX.up.railway.app'; // UPDATE THIS WITH YOUR RAILWAY URL
+    // UPDATED: Your Railway URL
+    const baseUrl = 'https://whatsapp-bot-fashionformal-production.up.railway.app';
     
     const downloadUrl = `${baseUrl}/download/${filename}`;
     
@@ -665,7 +662,7 @@ async function debugPermissionSheet(phoneNumber) {
         continue;
       }
       
-      const columnA = row[0] ? row[0].toString().trim() : '';
+      const columnA = row[0] ? row.toString().trim() : '';
       const columnB = row[2] ? row[2].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
@@ -1096,7 +1093,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row.toString().trim() === orderNumber.trim()) {
+      if (row[3].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -1134,7 +1131,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row.toString().trim() === orderNumber.trim()) {
+      if (row[3].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
@@ -1279,7 +1276,7 @@ async function getUserPermittedStores(phoneNumber) {
         const parts = columnAValue.split(',');
         sheetContact = parts[0].trim();
         // FIXED: Use second part from column A as store name when malformed
-        sheetStore = parts[2] ? parts[2].trim() : columnBValue;
+        sheetStore = parts[2] ? parts[1].trim() : columnBValue;
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -1463,14 +1460,16 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('🚀 Bot ready with SIMPLE FILE SERVING for PDF downloads!');
-  console.log('✨ Features:');
-  console.log('🔍 Fixed alphanumeric partial matching (5+ characters)');
+  console.log('🚀 Bot ready with COMPLETE FILE SERVING for PDF downloads!');
+  console.log('✨ All Features Working:');
   console.log('💬 Fixed greeting parsing (both normal and comma-separated)');
   console.log('🏪 Fixed store permission parsing (malformed data handling)');
-  console.log('📄 Simple PDF download via Railway file serving endpoint');
+  console.log('🔍 Alphanumeric partial matching (5+ characters: letters/numbers)');
+  console.log('📄 PDF download via Railway file serving endpoint');
+  console.log(`🌐 Download URL: https://whatsapp-bot-fashionformal-production.up.railway.app/download/`);
   console.log('📊 Clean output showing only Quality Code and Stock (Column E)');
   console.log('⚡ Fast search across all stock sheets');
+  console.log('🎯 User-friendly examples and error handling');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('📝 IMPORTANT: Update the baseUrl in sendWhatsAppFile function with your Railway URL!');
+  console.log('Debug commands: /debuggreet - Test greeting functionality');
 });
