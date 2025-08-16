@@ -1,18 +1,32 @@
 {
   "name": "whatsapp-bot-fashionformal",
   "version": "1.0.0",
-  "description": "WhatsApp Bot for Fashion Formal with dynamic forms and central response collection",
+  "description": "WhatsApp Bot for Fashion Formal with Smart Stock Search",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
-    "dotenv": "^16.3.0",
-    "googleapis": "^131.0.0"
+    "googleapis": "^128.0.0",
+    "dotenv": "^16.3.1",
+    "pdfkit": "^0.14.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
   },
   "engines": {
-    "node": "18.x"
-  }
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "nodejs",
+    "stock-management",
+    "pdf-generation"
+  ],
+  "author": "Your Name",
+  "license": "ISC"
 }
