@@ -9,6 +9,51 @@ const app = express();
 
 app.use(express.json());
 
+// NEW: Add file serving endpoint for PDFs
+app.get('/download/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filepath = path.join(__dirname, 'temp', filename);
+    
+    console.log(`Download request for: ${filename}`);
+    
+    if (fs.existsSync(filepath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.download(filepath, filename, (err) => {
+        if (err) {
+          console.error('Download error:', err);
+        } else {
+          console.log(`Successfully served: ${filename}`);
+          // Delete file after download (optional)
+          setTimeout(() => {
+            try {
+              fs.unlinkSync(filepath);
+              console.log(`Cleaned up: ${filename}`);
+            } catch (cleanupErr) {
+              console.log('Cleanup error:', cleanupErr.message);
+            }
+          }, 300000); // Delete after 5 minutes
+        }
+      });
+    } else {
+      console.log(`File not found: ${filepath}`);
+      res.status(404).send(`
+        <html>
+          <body>
+            <h2>File Not Found</h2>
+            <p>The requested PDF file was not found or has expired.</p>
+            <p>Please generate a new stock query.</p>
+          </body>
+        </html>
+      `);
+    }
+  } catch (error) {
+    console.error('File serving error:', error);
+    res.status(500).send('Error serving file');
+  }
+});
+
 // Store user states to track which menu they're in
 let userStates = {};
 
@@ -76,7 +121,7 @@ async function getGoogleAuth() {
   }
 }
 
-// Get user greeting from Greetings sheet
+// FIXED: Get user greeting from Greetings sheet
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`Getting greeting for phone: ${phoneNumber}`);
@@ -85,7 +130,6 @@ async function getUserGreeting(phoneNumber) {
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    // Get sheet metadata first
     let rows = null;
     
     try {
@@ -93,12 +137,6 @@ async function getUserGreeting(phoneNumber) {
         spreadsheetId: GREETINGS_SHEET_ID,
       });
       
-      console.log('Available sheets in spreadsheet:');
-      metaResponse.data.sheets.forEach(sheet => {
-        console.log(`- Sheet: "${sheet.properties.title}" (ID: ${sheet.properties.sheetId})`);
-      });
-      
-      // Find the greetings sheet (GID 904469862)
       let greetingsSheet = metaResponse.data.sheets.find(sheet => 
         sheet.properties.sheetId === 904469862
       );
@@ -111,8 +149,6 @@ async function getUserGreeting(phoneNumber) {
       
       if (greetingsSheet) {
         const sheetName = greetingsSheet.properties.title;
-        console.log(`Found greetings sheet: "${sheetName}"`);
-        
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: GREETINGS_SHEET_ID,
           range: `'${sheetName}'!A:D`,
@@ -120,22 +156,12 @@ async function getUserGreeting(phoneNumber) {
         });
         
         rows = response.data.values;
-        console.log(`Successfully read ${rows ? rows.length : 0} rows from greetings sheet`);
       }
     } catch (metaError) {
-      console.log('Metadata approach failed, trying alternative ranges...');
-      
-      // Fallback attempts
-      const attempts = [
-        'Greetings!A:D',
-        "'Greetings'!A:D", 
-        'Sheet2!A:D',
-        'A:D'
-      ];
+      const attempts = ['Greetings!A:D', "'Greetings'!A:D", 'Sheet2!A:D', 'A:D'];
       
       for (const range of attempts) {
         try {
-          console.log(`Trying range: ${range}`);
           const response = await sheets.spreadsheets.values.get({
             spreadsheetId: GREETINGS_SHEET_ID,
             range: range,
@@ -144,24 +170,18 @@ async function getUserGreeting(phoneNumber) {
           
           if (response.data.values && response.data.values.length > 0) {
             rows = response.data.values;
-            console.log(`Successfully accessed greetings with range: ${range}`);
             break;
           }
         } catch (rangeError) {
-          console.log(`Range ${range} failed: ${rangeError.message}`);
           continue;
         }
       }
     }
     
-    console.log('Greetings sheet raw data:', JSON.stringify(rows, null, 2));
-    
     if (!rows || rows.length === 0) {
-      console.log('No data found in any Greetings sheet attempt');
       return null;
     }
 
-    // Clean phone number variations (remove duplicates and fix length issue)
     const phoneVariations = Array.from(new Set([
       phoneNumber,
       phoneNumber.replace(/^\+91/, ''),
@@ -169,54 +189,46 @@ async function getUserGreeting(phoneNumber) {
       phoneNumber.replace(/^91/, ''),
       phoneNumber.replace(/^0/, ''),
       phoneNumber.replace(/[\s\-\(\)]/g, ''),
-      phoneNumber.slice(-10) // Last 10 digits
+      phoneNumber.slice(-10)
     ])).filter(p => p && p.length >= 10);
     
-    console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
-    
-    // Handle JavaScript numbers and field mapping correctly
-    for (let i = 1; i < rows.length; i++) { // Skip header row
+    for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row || row.length === 0) {
-        console.log(`Row ${i + 1}: Skipping empty greeting row`);
-        continue;
-      }
+      if (!row || row.length === 0) continue;
       
-      // Safely convert contact to string (handle JavaScript numbers)
-      let sheetContact;
-      try {
-        const contactCell = row[0];
+      let sheetContact, name, salutation, greetings;
+      
+      // FIXED: Handle both formats properly
+      if (row.length >= 4 && row[1] && row[1] && row && !row.toString().includes(',')) {
+        // Normal format
+        const contactCell = row;
         if (typeof contactCell === 'number') {
-          // Handle JavaScript numbers - convert to string without scientific notation
           sheetContact = contactCell.toString();
-          // If it's still in scientific notation, use format
           if (sheetContact.includes('e+') || sheetContact.includes('E+')) {
             sheetContact = contactCell.toFixed(0);
           }
-        } else if (contactCell !== null && contactCell !== undefined) {
-          sheetContact = contactCell.toString();
-          // Handle comma-separated corruption
-          if (sheetContact.includes(',')) {
-            sheetContact = sheetContact.split(',')[0].trim();
-          }
         } else {
-          sheetContact = '';
+          sheetContact = contactCell ? contactCell.toString().trim() : '';
         }
-        sheetContact = sheetContact.trim();
-      } catch (error) {
-        console.log(`Row ${i + 1}: Error processing contact field: ${error.message}`);
+        name = row[1].toString().trim();
+        salutation = row[1].toString().trim(); 
+        greetings = row.toString().trim();
+      } else if (row && row.toString().includes(',')) {
+        // Comma-separated format
+        const parts = row.toString().split(',');
+        if (parts.length >= 4) {
+          sheetContact = parts.trim();
+          name = parts[2].trim();
+          salutation = parts[1].trim(); 
+          greetings = parts.trim();
+        } else {
+          continue;
+        }
+      } else {
         continue;
       }
       
-      // Proper field mapping based on your sheet structure
-      // Your sheet: Contact Number | Name | Salutation | Greetings
-      const name = row[1] ? row[1].toString().trim() : '';
-      const salutation = row[1] ? row[1].toString().trim() : '';
-      const greetings = row ? row.toString().trim() : '';
-      
-      console.log(`Row ${i + 1}: FINAL - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
-      
-      // Clean sheet contact variations (remove duplicates)
+      // Check for match
       const sheetContactVariations = Array.from(new Set([
         sheetContact,
         sheetContact.replace(/^\+91/, ''),
@@ -224,16 +236,12 @@ async function getUserGreeting(phoneNumber) {
         sheetContact.replace(/^91/, ''),
         sheetContact.replace(/^0/, ''),
         sheetContact.replace(/[\s\-\(\)]/g, ''),
-        sheetContact.slice(-10) // Last 10 digits
+        sheetContact.slice(-10)
       ])).filter(s => s && s.length >= 10);
       
-      console.log(`Comparing phone variations: ${phoneVariations.join(', ')} with sheet variations: ${sheetContactVariations.join(', ')}`);
-      
-      // Check for match
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
         if (sheetContactVariations.includes(phoneVar)) {
-          console.log(`✅ Greeting match found! "${phoneVar}"`);
           isMatch = true;
           break;
         }
@@ -241,15 +249,10 @@ async function getUserGreeting(phoneNumber) {
       
       if (isMatch) {
         console.log(`🎉 Found greeting for ${phoneNumber}: ${salutation} ${name}`);
-        return {
-          name: name,
-          salutation: salutation,
-          greetings: greetings
-        };
+        return { name, salutation, greetings };
       }
     }
     
-    console.log(`❌ No greeting found for ${phoneNumber} after checking all rows`);
     return null;
     
   } catch (error) {
@@ -267,11 +270,10 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// FIXED: Enhanced Smart Stock Search with Alphanumeric Support and Clean Output
+// Enhanced Smart Stock Search with Alphanumeric Support
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
-  // Initialize results for each search term
   searchTerms.forEach(term => {
     results[term] = [];
   });
@@ -282,7 +284,6 @@ async function searchStockWithPartialMatch(searchTerms) {
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
 
-    // Get all stock files
     const folderFiles = await drive.files.list({
       q: `'${STOCK_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -290,14 +291,13 @@ async function searchStockWithPartialMatch(searchTerms) {
 
     console.log(`Found ${folderFiles.data.files.length} stock files for smart search`);
 
-    // Search through each stock file
     for (const file of folderFiles.data.files) {
       console.log(`Smart searching in: ${file.name}`);
       
       try {
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: file.id,
-          range: 'A:E', // Only need columns A (code) and E (stock)
+          range: 'A:E',
         });
 
         const rows = response.data.values;
@@ -306,19 +306,16 @@ async function searchStockWithPartialMatch(searchTerms) {
           continue;
         }
         
-        // Search each row for partial matches
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
           if (!row[0]) continue;
           
-          const qualityCode = row[0].toString().trim();
-          const stockValue = row ? row.toString().trim() : '0'; // Column E (index 4)
+          const qualityCode = row.toString().trim();
+          const stockValue = row ? row.toString().trim() : '0';
           
-          // Check each search term for partial matches
           searchTerms.forEach(searchTerm => {
             const cleanSearchTerm = searchTerm.trim();
             
-            // FIXED: Accept any 5+ character alphanumeric substring (not just digits)
             if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
               console.log(`📍 ALPHANUMERIC MATCH: "${cleanSearchTerm}" found in "${qualityCode}" at ${file.name} - Stock: ${stockValue}`);
               
@@ -345,7 +342,7 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// FIXED: Generate PDF showing only Quality Code and Stock (Column E)
+// Generate PDF for stock results
 async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -412,7 +409,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
           doc.fontSize(11)
              .font('Helvetica');
           
-          // FIXED: Only show Quality Code and Stock (Column E)
+          // Only show Quality Code and Stock (Column E)
           items.forEach(item => {
             doc.text(`  ${item.qualityCode}: ${item.stock}`);
           });
@@ -452,46 +449,66 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   }
 }
 
-// Send file via WhatsApp API
+// FIXED: Send file via Railway file serving endpoint
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
   try {
-    console.log(`Would send file ${filename} to ${to}`);
-    console.log(`File location: ${filepath}`);
+    console.log(`Preparing download link for: ${filename}`);
     
-    // For now, we'll send a message with download instructions
-    const fileSize = fs.statSync(filepath).size;
-    const fileSizeKB = Math.round(fileSize / 1024);
+    // Get file size
+    const fileStats = fs.statSync(filepath);
+    const fileSizeKB = Math.round(fileStats.size / 1024);
     
-    const message = `📄 *Stock Results Generated*
+    // Create download URL using Railway's provided URL
+    // UPDATE THIS WITH YOUR ACTUAL RAILWAY URL
+    const baseUrl = process.env.RAILWAY_STATIC_URL || 
+                   process.env.PUBLIC_URL || 
+                   'https://whatsapp-bot-production-XXXX.up.railway.app'; // UPDATE THIS WITH YOUR RAILWAY URL
+    
+    const downloadUrl = `${baseUrl}/download/${filename}`;
+    
+    const message = `📄 *Stock Results Ready!*
 
 📊 File: ${filename}
 📏 Size: ${fileSizeKB} KB
 
-🔗 Your detailed stock results have been generated as a PDF.
+🔗 *Download your PDF:*
+${downloadUrl}
 
-*To download:*
-Contact system administrator with this reference: ${filename}
+✅ Click the link above to download
+📱 Works on phone and computer
+⏰ Link expires in 5 minutes
 
 _Type */menu* for main menu._`;
     
     await sendWhatsAppMessage(to, message, productId, phoneId);
     
   } catch (error) {
-    console.error('Error sending file:', error);
-    throw error;
+    console.error('Error creating download link:', error);
+    
+    // Fallback message
+    const fallbackMessage = `📄 *PDF Generated*
+
+Your stock results have been generated successfully.
+
+📞 Contact support to get your file:
+Reference: ${filename}
+
+_Type */menu* for main menu._`;
+    
+    await sendWhatsAppMessage(to, fallbackMessage, productId, phoneId);
   }
 }
 
-// FIXED: Smart Stock Query with Alphanumeric Support and Clean Output
+// Smart Stock Query with PDF File Serving
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     console.log('Processing SMART stock query for:', from);
     console.log('Search terms:', searchTerms);
     
-    // FIXED: Validate search terms (minimum 5 characters, alphanumeric allowed)
+    // Validate search terms (minimum 5 characters, alphanumeric allowed)
     const validTerms = searchTerms.filter(term => {
       const cleanTerm = term.trim();
-      return cleanTerm.length >= 5; // Accept any 5+ character string (alphanumeric)
+      return cleanTerm.length >= 5;
     });
     
     if (validTerms.length === 0) {
@@ -548,7 +565,7 @@ _Type */menu* for main menu._`;
     
     // Decide: WhatsApp message vs PDF
     if (totalResults <= 15) {
-      // SHORT LIST: Send as WhatsApp message - FIXED: Only show code and stock
+      // SHORT LIST: Send as WhatsApp message - Only show code and stock
       let responseMessage = `🎯 *Smart Search Results*\n\n`;
       
       validTerms.forEach(term => {
@@ -556,7 +573,7 @@ _Type */menu* for main menu._`;
         if (termResults.length > 0) {
           responseMessage += `*"${term}" (${termResults.length} found)*\n`;
           
-          // FIXED: Only show Quality Code and Stock Value
+          // Only show Quality Code and Stock Value
           termResults.forEach(result => {
             responseMessage += `${result.qualityCode}: ${result.stock}\n`;
           });
@@ -594,14 +611,11 @@ _Type */menu* for main menu._`;
 
 🔍 Search: ${validTerms.join(', ')}
 📈 Total Results: ${totalResults} items
-📄 PDF Generated: ${pdfResult.filename}
-
-*Results are too long for WhatsApp*
-📋 Detailed PDF report has been generated.`;
+📄 Generating PDF download...`;
         
         await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
         
-        // Send the PDF file
+        // Send the PDF download link
         await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId);
         
       } catch (pdfError) {
@@ -957,7 +971,7 @@ Type your search terms below:`;
     }
   }
 
-  // FIXED: Handle smart stock query input (alphanumeric support)
+  // Handle smart stock query input (alphanumeric support)
   if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
     if (trimmedMessage !== '/menu') {
       const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
@@ -1120,7 +1134,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row.toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
@@ -1208,7 +1222,7 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// Get user permitted stores with proper API handling
+// FIXED: Get user permitted stores
 async function getUserPermittedStores(phoneNumber) {
   try {
     console.log(`Getting permitted stores for phone: ${phoneNumber}`);
@@ -1217,7 +1231,6 @@ async function getUserPermittedStores(phoneNumber) {
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    // Use explicit sheet name and proper API options
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STORE_PERMISSION_SHEET_ID,
       range: 'store permission!A:B',
@@ -1232,7 +1245,6 @@ async function getUserPermittedStores(phoneNumber) {
     }
 
     console.log(`Found ${rows.length} total rows in permission sheet`);
-    console.log('Raw rows data:', JSON.stringify(rows.slice(0, 5), null, 2));
     
     const permittedStores = [];
     
@@ -1262,10 +1274,12 @@ async function getUserPermittedStores(phoneNumber) {
       const columnBValue = row[2] ? row[2].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
+        // FIXED: Malformed data - both contact and store in column A
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
         sheetContact = parts[0].trim();
-        sheetStore = columnBValue || (parts[2] ? parts[2].trim() : '');
+        // FIXED: Use second part from column A as store name when malformed
+        sheetStore = parts[2] ? parts[2].trim() : columnBValue;
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -1295,7 +1309,7 @@ async function getUserPermittedStores(phoneNumber) {
         if (isMatch) break;
       }
       
-      if (isMatch) {
+      if (isMatch && sheetStore) {
         permittedStores.push(sheetStore);
         console.log(`  Added permitted store: ${sheetStore}`);
       }
@@ -1354,7 +1368,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[2]) - 1;
+        const storeIndex = parseInt(match[1]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -1449,12 +1463,14 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('🚀 Bot ready with FIXED SMART STOCK SEARCH!');
-  console.log('✨ Fixed Features:');
-  console.log('🔍 Alphanumeric partial matching (5+ characters: letters/numbers)');
-  console.log('📄 Clean output showing only Quality Code and Stock (Column E)');
-  console.log('⚡ Fast substring search across all stock sheets');
-  console.log('📊 Smart output: WhatsApp text vs PDF based on result count');
-  console.log('🎯 User-friendly examples for alphanumeric search');
+  console.log('🚀 Bot ready with SIMPLE FILE SERVING for PDF downloads!');
+  console.log('✨ Features:');
+  console.log('🔍 Fixed alphanumeric partial matching (5+ characters)');
+  console.log('💬 Fixed greeting parsing (both normal and comma-separated)');
+  console.log('🏪 Fixed store permission parsing (malformed data handling)');
+  console.log('📄 Simple PDF download via Railway file serving endpoint');
+  console.log('📊 Clean output showing only Quality Code and Stock (Column E)');
+  console.log('⚡ Fast search across all stock sheets');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
+  console.log('📝 IMPORTANT: Update the baseUrl in sendWhatsAppFile function with your Railway URL!');
 });
