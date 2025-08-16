@@ -73,7 +73,7 @@ async function getGoogleAuth() {
   }
 }
 
-// ULTIMATE FIX: Handle contact field corruption and fix all mapping
+// FINAL FIX: Handle JavaScript number conversion properly
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`Getting greeting for phone: ${phoneNumber}`);
@@ -158,7 +158,7 @@ async function getUserGreeting(phoneNumber) {
       return null;
     }
 
-    // FIXED: Clean phone number variations (remove duplicates)
+    // FIXED: Clean phone number variations (remove duplicates and fix length issue)
     const phoneVariations = Array.from(new Set([
       phoneNumber,
       phoneNumber.replace(/^\+91/, ''),
@@ -167,11 +167,11 @@ async function getUserGreeting(phoneNumber) {
       phoneNumber.replace(/^0/, ''),
       phoneNumber.replace(/[\s\-\(\)]/g, ''),
       phoneNumber.slice(-10) // Last 10 digits
-    ])).filter(p => p.length >= 10);
+    ])).filter(p => p && p.length >= 10);
     
     console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
     
-    // ULTIMATE FIX: Handle corrupted contact field and correct mapping
+    // FINAL FIX: Handle JavaScript numbers and field mapping correctly
     for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
       if (!row || row.length === 0) {
@@ -179,25 +179,39 @@ async function getUserGreeting(phoneNumber) {
         continue;
       }
       
-      // FIXED: Extract clean contact from potentially corrupted field
-      let sheetContact, name, salutation, greetings;
-      
-      // Extract contact - handle corruption where entire row might be in first field
-      const firstField = row[0] ? row.toString().trim() : '';
-      if (firstField.includes(',')) {
-        // Field is corrupted with entire row, extract just the phone number
-        sheetContact = firstField.split(',').trim();
-      } else {
-        sheetContact = firstField;
+      // FIXED: Safely convert contact to string (handle JavaScript numbers)
+      let sheetContact;
+      try {
+        const contactCell = row[0];
+        if (typeof contactCell === 'number') {
+          // Handle JavaScript numbers - convert to string without scientific notation
+          sheetContact = contactCell.toString();
+          // If it's still in scientific notation, use format
+          if (sheetContact.includes('e+') || sheetContact.includes('E+')) {
+            sheetContact = contactCell.toFixed(0);
+          }
+        } else if (contactCell !== null && contactCell !== undefined) {
+          sheetContact = contactCell.toString();
+          // Handle comma-separated corruption
+          if (sheetContact.includes(',')) {
+            sheetContact = sheetContact.split(',')[0].trim();
+          }
+        } else {
+          sheetContact = '';
+        }
+        sheetContact = sheetContact.trim();
+      } catch (error) {
+        console.log(`Row ${i + 1}: Error processing contact field: ${error.message}`);
+        continue;
       }
       
       // CORRECTED: Proper field mapping based on your sheet structure
       // Your sheet: Contact Number | Name | Salutation | Greetings
-      name = row[1] ? row[1].toString().trim() : '';
-      salutation = row[2] ? row[2].toString().trim() : '';
-      greetings = row[3] ? row[3].toString().trim() : '';
+      const name = row[1] ? row[1].toString().trim() : '';
+      const salutation = row[2] ? row[2].toString().trim() : '';
+      const greetings = row[3] ? row[3].toString().trim() : '';
       
-      console.log(`Row ${i + 1}: CORRECTED - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
+      console.log(`Row ${i + 1}: FINAL - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
       
       // Clean sheet contact variations (remove duplicates)
       const sheetContactVariations = Array.from(new Set([
@@ -208,7 +222,7 @@ async function getUserGreeting(phoneNumber) {
         sheetContact.replace(/^0/, ''),
         sheetContact.replace(/[\s\-\(\)]/g, ''),
         sheetContact.slice(-10) // Last 10 digits
-      ])).filter(s => s.length >= 10);
+      ])).filter(s => s && s.length >= 10);
       
       console.log(`Comparing phone variations: ${phoneVariations.join(', ')} with sheet variations: ${sheetContactVariations.join(', ')}`);
       
@@ -285,7 +299,7 @@ async function debugPermissionSheet(phoneNumber) {
         continue;
       }
       
-      const columnA = row[0] ? row[0].toString().trim() : '';
+      const columnA = row[0] ? row.toString().trim() : '';
       const columnB = row[1] ? row[1].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
@@ -597,7 +611,8 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
-// [Rest of the functions remain the same - processOrderQuery, searchOrderStatus, etc.]
+// [Include all remaining functions: processOrderQuery, searchOrderStatus, etc. - they remain unchanged]
+
 // Process order query
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
   try {
@@ -1068,7 +1083,7 @@ async function searchStockInAllSheets(qualities) {
                 cellQualityUpper.includes(qualityUpper) ||
                 cellQualityLower.includes(qualityLower)) {
               
-              const stockValue = row[5] ? row[5].toString().trim() : '0';
+              const stockValue = row[4] ? row[5].toString().trim() : '0';
               console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
               results[searchQuality][file.name] = stockValue;
               break;
@@ -1228,13 +1243,13 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with ULTIMATE greetings fix (corruption handling + field mapping)');
+  console.log('Bot ready with FINAL WORKING greetings (JavaScript number handling)');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`Greetings Sheet ID: ${GREETINGS_SHEET_ID} (Greetings tab)`);
-  console.log('ULTIMATE FIX: Contact field corruption handling + proper field mapping');
+  console.log('FINAL FIX: JavaScript number handling + scientific notation prevention');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
   console.log('Debug command: /debuggreet - Test greeting functionality');
 });
