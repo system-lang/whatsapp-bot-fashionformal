@@ -72,10 +72,10 @@ async function getGoogleAuth() {
   }
 }
 
-// FIXED: Debug permission sheet with proper API handling
+// Debug permission sheet with proper API handling
 async function debugPermissionSheet(phoneNumber) {
   try {
-    console.log(`🔍 DEBUG: Checking permissions for phone: ${phoneNumber}`);
+    console.log(`DEBUG: Checking permissions for phone: ${phoneNumber}`);
     
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
@@ -83,23 +83,23 @@ async function debugPermissionSheet(phoneNumber) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STORE_PERMISSION_SHEET_ID,
-      range: 'store permission!A:B', // Explicit sheet name
+      range: 'store permission!A:B',
       valueRenderOption: 'UNFORMATTED_VALUE'
     });
 
     const rows = response.data.values;
-    console.log('📊 Raw data from permission sheet:');
+    console.log('Raw data from permission sheet:');
     console.log(JSON.stringify(rows, null, 2));
     
     if (!rows || rows.length === 0) {
-      console.log('❌ No data found in permission sheet');
+      console.log('No data found in permission sheet');
       return;
     }
 
     const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
-    console.log(`🔍 Looking for cleaned phone: "${cleanPhone}"`);
+    console.log(`Looking for cleaned phone: "${cleanPhone}"`);
     
-    console.log('\n📋 Analyzing all permission entries:');
+    console.log('\nAnalyzing all permission entries:');
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length < 2) {
@@ -108,7 +108,7 @@ async function debugPermissionSheet(phoneNumber) {
       }
       
       const columnA = row[0] ? row.toString().trim() : '';
-      const columnB = row[3] ? row[3].toString().trim() : '';
+      const columnB = row[1] ? row[1].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
       console.log(`  Column A (raw): "${columnA}"`);
@@ -118,10 +118,10 @@ async function debugPermissionSheet(phoneNumber) {
       let extractedStore = '';
       
       if (columnA.includes(',')) {
-        console.log(`  ⚠️ Malformed data detected in Column A`);
+        console.log(`  Malformed data detected in Column A`);
         const parts = columnA.split(',');
         extractedPhone = parts[0].trim();
-        extractedStore = columnB || (parts[3] ? parts[3].trim() : '');
+        extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
       } else {
         extractedPhone = columnA;
         extractedStore = columnB;
@@ -132,11 +132,11 @@ async function debugPermissionSheet(phoneNumber) {
       
       console.log(`  Extracted Phone: "${extractedPhone}" (cleaned: "${cleanExtracted}")`);
       console.log(`  Extracted Store: "${extractedStore}"`);
-      console.log(`  ${isMatch ? '✅ MATCH!' : '❌ No match'}`);
+      console.log(`  ${isMatch ? 'MATCH!' : 'No match'}`);
     }
     
   } catch (error) {
-    console.error('❌ Error reading permission sheet:', error);
+    console.error('Error reading permission sheet:', error);
   }
 }
 
@@ -164,7 +164,7 @@ app.post('/webhook', async (req, res) => {
   if (trimmedMessage.startsWith('DEBUG:')) {
     const phoneToDebug = trimmedMessage.replace('DEBUG:', '').trim() || from;
     await debugPermissionSheet(phoneToDebug);
-    await sendWhatsAppMessage(from, `🔍 Debug completed for: ${phoneToDebug}\n\nCheck server logs for detailed permission analysis.\n\nType */* for main menu.`, productId, phoneId);
+    await sendWhatsAppMessage(from, `Debug completed for: ${phoneToDebug}\n\nCheck server logs for detailed permission analysis.\n\nType */* for main menu.`, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -172,13 +172,14 @@ app.post('/webhook', async (req, res) => {
   if (trimmedMessage === '/') {
     console.log('Menu command received - activating bot');
     userStates[from] = { currentMenu: 'main' };
-    const mainMenu = `🏠 *MAIN MENU*
+    const mainMenu = `*MAIN MENU*
+
 Please select an option:
 
-1️⃣ Ticket
-2️⃣ Order Query  
-3️⃣ Stock Query
-4️⃣ Document
+1. Ticket
+2. Order Query  
+3. Stock Query
+4. Document
 
 _Type the number to continue..._`;
     
@@ -189,16 +190,17 @@ _Type the number to continue..._`;
   // Handle menu selections
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     if (trimmedMessage === '1') {
-      const ticketMenu = `🎫 *TICKET OPTIONS*
+      const ticketMenu = `*TICKET OPTIONS*
+
 Click the links below to access forms directly:
 
-🆘 *HELP TICKET*
+*HELP TICKET*
 ${links.helpTicket}
 
-🏖️ *LEAVE FORM*
+*LEAVE FORM*
 ${links.leave}
 
-👥 *DELEGATION*
+*DELEGATION*
 ${links.delegation}
 
 _Type */* to return to main menu._`;
@@ -210,12 +212,13 @@ _Type */* to return to main menu._`;
 
     if (trimmedMessage === '2') {
       userStates[from].currentMenu = 'order_query';
-      const orderQueryMenu = `📦 *ORDER QUERY*
+      const orderQueryMenu = `*ORDER QUERY*
+
 Please select the product category:
 
-1️⃣ Shirting
-2️⃣ Jacket  
-3️⃣ Trouser
+1. Shirting
+2. Jacket  
+3. Trouser
 
 _Type the number to continue..._`;
       
@@ -225,7 +228,8 @@ _Type the number to continue..._`;
 
     if (trimmedMessage === '3') {
       userStates[from].currentMenu = 'stock_query';
-      const stockQueryPrompt = `📊 *STOCK QUERY*
+      const stockQueryPrompt = `*STOCK QUERY*
+
 Please enter the Quality names you want to search for.
 
 *Multiple qualities:* Separate with commas
@@ -238,12 +242,12 @@ _Type your quality names below:_`;
     }
 
     if (trimmedMessage === '4') {
-      await sendWhatsAppMessage(from, '📄 *DOCUMENT*\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
+      await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
 
-    await sendWhatsAppMessage(from, '❌ Invalid option. Please select 1, 2, 3, or 4.\n\nType */* to see the main menu again.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, 3, or 4.\n\nType */* to see the main menu again.', productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -251,23 +255,23 @@ _Type your quality names below:_`;
   if (userStates[from] && userStates[from].currentMenu === 'order_query') {
     if (trimmedMessage === '1') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
-      await sendWhatsAppMessage(from, `👔 *SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '2') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
-      await sendWhatsAppMessage(from, `🧥 *JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '3') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
-      await sendWhatsAppMessage(from, `👖 *TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-    await sendWhatsAppMessage(from, '❌ Invalid option. Please select 1, 2, or 3.\n\nType */* to return to main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, or 3.\n\nType */* to return to main menu.', productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -309,16 +313,16 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
   try {
     console.log(`Processing order query for ${category}: ${orderNumbers.join(', ')}`);
     
-    await sendWhatsAppMessage(from, `🔍 *Checking ${category} orders...*\nPlease wait while I search for your order status.`, productId, phoneId);
+    await sendWhatsAppMessage(from, `*Checking ${category} orders...*\n\nPlease wait while I search for your order status.`, productId, phoneId);
 
-    let responseMessage = `📦 *${category.toUpperCase()} ORDER STATUS*\n\n`;
+    let responseMessage = `*${category.toUpperCase()} ORDER STATUS*\n\n`;
     
     for (const orderNum of orderNumbers) {
       console.log(`Searching for order: ${orderNum}`);
       
       const orderStatus = await searchOrderStatus(orderNum, category);
       
-      responseMessage += `🔸 *Order: ${orderNum}*\n`;
+      responseMessage += `*Order: ${orderNum}*\n`;
       responseMessage += `${orderStatus.message}\n\n`;
     }
     
@@ -328,7 +332,7 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
     
   } catch (error) {
     console.error('Error processing order query:', error);
-    await sendWhatsAppMessage(from, '❌ *Error checking orders*\nPlease try again later.\n\nType */* to return to main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
@@ -377,14 +381,14 @@ async function searchOrderStatus(orderNumber, category) {
     console.log(`Order ${orderNumber} not found in any system`);
     return { 
       found: false, 
-      message: '❌ Order not found in system. Please contact responsible person.\n\nThank you.' 
+      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
     };
 
   } catch (error) {
     console.error('Error in searchOrderStatus:', error);
     return { 
       found: false, 
-      message: '❌ Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
+      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
     };
   }
 }
@@ -402,12 +406,12 @@ async function searchInLiveSheet(sheets, orderNumber) {
       return { found: false };
     }
 
-    // FIXED: Find order in column D (index 3)
+    // Find order in column D (index 3)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[1].toString().trim() === orderNumber.trim()) {
+      if (row[2].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -445,15 +449,15 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[1].toString().trim() === orderNumber.trim()) {
+      if (row[3].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row ? row.toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row.toString().trim() : 'Date not available';
         
         return {
           found: true,
-          message: `✅ Order got dispatched on ${dispatchDate}`,
+          message: `Order got dispatched on ${dispatchDate}`,
           location: 'Completed Orders'
         };
       }
@@ -474,7 +478,7 @@ function checkProductionStages(row) {
     let lastCompletedStageIndex = -1;
     let hasAnyStage = false;
 
-    console.log('🔍 Checking ALL production stages for last completed...');
+    console.log('Checking ALL production stages for last completed...');
 
     // Check EVERY production stage (don't stop at first empty)
     for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
@@ -488,17 +492,17 @@ function checkProductionStages(row) {
         lastCompletedStage = stage;
         lastCompletedStageIndex = i;
         hasAnyStage = true;
-        console.log(`✅ Stage ${stage.name} completed: ${cellValue} (Index: ${i})`);
+        console.log(`Stage ${stage.name} completed: ${cellValue} (Index: ${i})`);
       } else {
-        console.log(`❌ Stage ${stage.name} not completed`);
+        console.log(`Stage ${stage.name} not completed`);
       }
     }
 
-    console.log(`🎯 Last completed stage: ${lastCompletedStage ? lastCompletedStage.name : 'None'} (Index: ${lastCompletedStageIndex})`);
+    console.log(`Last completed stage: ${lastCompletedStage ? lastCompletedStage.name : 'None'} (Index: ${lastCompletedStageIndex})`);
 
     // Generate status message based on findings
     if (!hasAnyStage) {
-      return { message: '🟡 Order is currently under process' };
+      return { message: 'Order is currently under process' };
     }
 
     // Check if it's the final stage (Dispatch HO)
@@ -506,21 +510,21 @@ function checkProductionStages(row) {
       // Get dispatch date from column CH
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
       const dispatchDate = row[dispatchDateIndex] ? row[dispatchDateIndex].toString().trim() : 'Date not available';
-      return { message: `✅ Order has been dispatched from HO on ${dispatchDate}` };
+      return { message: `Order has been dispatched from HO on ${dispatchDate}` };
     }
 
     // For any other completed stage, show current stage and next stage
     if (lastCompletedStage) {
       return { 
-        message: `🔄 Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
       };
     }
 
-    return { message: '❌ Error determining order status' };
+    return { message: 'Error determining order status' };
 
   } catch (error) {
-    console.error('❌ Error checking production stages:', error);
-    return { message: '❌ Error checking order status' };
+    console.error('Error checking production stages:', error);
+    return { message: 'Error checking order status' };
   }
 }
 
@@ -533,22 +537,22 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// ENHANCED: Stock query with multiple orders and debug support
+// Stock query with multiple orders and debug support
 async function processStockQueryWithMultipleOrders(from, qualities, productId, phoneId) {
   try {
     console.log('Processing stock query with multiple orders for:', from);
     
-    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait.', productId, phoneId);
+    await sendWhatsAppMessage(from, '*Searching stock information...*\n\nPlease wait.', productId, phoneId);
 
     const stockResults = await searchStockInAllSheets(qualities);
     const permittedStores = await getUserPermittedStores(from);
     
-    console.log(`📊 Stock search completed. User ${from} has ${permittedStores.length} permitted stores:`, permittedStores);
+    console.log(`Stock search completed. User ${from} has ${permittedStores.length} permitted stores:`, permittedStores);
     
-    let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
+    let responseMessage = `*STOCK QUERY RESULTS*\n\n`;
     
     qualities.forEach(quality => {
-      responseMessage += `🔸 *${quality}*\n`;
+      responseMessage += `*${quality}*\n`;
       
       const storeData = stockResults[quality] || {};
       if (Object.keys(storeData).length === 0) {
@@ -562,13 +566,13 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
     });
     
     if (permittedStores.length === 0) {
-      responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
+      responseMessage += `*NO ORDERING PERMISSION*\n\n`;
       responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
-      responseMessage += `📞 Contact: *system@fashionformal.com*\n\n`;
-      responseMessage += `🔍 *Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
+      responseMessage += `*Contact:* system@fashionformal.com\n\n`;
+      responseMessage += `*Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
       responseMessage += `_Type */* for main menu._`;
     } else {
-      responseMessage += `📋 *PLACE MULTIPLE ORDERS:*\n\n`;
+      responseMessage += `*PLACE MULTIPLE ORDERS:*\n\n`;
       responseMessage += `*Format:* Quality-StoreNumber, Quality-StoreNumber\n`;
       responseMessage += `*Example:* LTS8156-1, ETCH8029-2\n\n`;
       
@@ -590,14 +594,14 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
     
   } catch (error) {
     console.error('Error in stock query:', error);
-    await sendWhatsAppMessage(from, '❌ *Error searching stock*\n\nType */* to return to main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Error searching stock\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
-// FIXED: Get user permitted stores with proper API handling
+// Get user permitted stores with proper API handling
 async function getUserPermittedStores(phoneNumber) {
   try {
-    console.log(`🔍 Getting permitted stores for phone: ${phoneNumber}`);
+    console.log(`Getting permitted stores for phone: ${phoneNumber}`);
     
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
@@ -606,19 +610,19 @@ async function getUserPermittedStores(phoneNumber) {
     // Use explicit sheet name and proper API options
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STORE_PERMISSION_SHEET_ID,
-      range: 'store permission!A:B', // Specify sheet name explicitly
-      valueRenderOption: 'UNFORMATTED_VALUE', // Get raw values
+      range: 'store permission!A:B',
+      valueRenderOption: 'UNFORMATTED_VALUE',
       dateTimeRenderOption: 'FORMATTED_STRING'
     });
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
-      console.log('❌ No data found in Store Permission sheet');
+      console.log('No data found in Store Permission sheet');
       return [];
     }
 
-    console.log(`📊 Found ${rows.length} total rows in permission sheet`);
-    console.log('📋 Raw rows data:', JSON.stringify(rows.slice(0, 5), null, 2)); // Log first 5 rows
+    console.log(`Found ${rows.length} total rows in permission sheet`);
+    console.log('Raw rows data:', JSON.stringify(rows.slice(0, 5), null, 2));
     
     const permittedStores = [];
     
@@ -632,36 +636,31 @@ async function getUserPermittedStores(phoneNumber) {
       phoneNumber.replace(/[\s\-\(\)]/g, ''),
     ];
     
-    console.log(`🔍 Trying phone variations: ${phoneVariations.join(', ')}`);
+    console.log(`Trying phone variations: ${phoneVariations.join(', ')}`);
     
-    for (let i = 1; i < rows.length; i++) { // Skip header row
+    for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length < 2) {
         console.log(`Row ${i + 1}: Skipping incomplete row: ${JSON.stringify(row)}`);
         continue;
       }
       
-      // Extract phone and store - handle potential formatting issues
       let sheetContact = '';
       let sheetStore = '';
       
-      // Check if Column A contains comma-separated data (API issue)
       const columnAValue = row[0] ? row.toString().trim() : '';
-      const columnBValue = row[3] ? row[3].toString().trim() : '';
+      const columnBValue = row[1] ? row[1].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
-        // Handle malformed API response where Column A has "phone,store"
-        console.log(`⚠️ Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
+        console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts.trim();
-        sheetStore = columnBValue || (parts[3] ? parts[3].trim() : '');
+        sheetContact = parts[0].trim();
+        sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
       } else {
-        // Normal case: Column A = phone, Column B = store
         sheetContact = columnAValue;
         sheetStore = columnBValue;
       }
       
-      // Clean sheet contact multiple ways
       const sheetContactVariations = [
         sheetContact,
         sheetContact.replace(/^\+91/, ''),
@@ -674,12 +673,11 @@ async function getUserPermittedStores(phoneNumber) {
       console.log(`Row ${i + 1}: Contact="${sheetContact}" → Store="${sheetStore}"`);
       console.log(`  Contact variations: ${sheetContactVariations.join(', ')}`);
       
-      // Check all variations
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
         for (const sheetVar of sheetContactVariations) {
           if (phoneVar === sheetVar) {
-            console.log(`  ✅ MATCH FOUND! "${phoneVar}" === "${sheetVar}"`);
+            console.log(`  MATCH FOUND! "${phoneVar}" === "${sheetVar}"`);
             isMatch = true;
             break;
           }
@@ -689,15 +687,15 @@ async function getUserPermittedStores(phoneNumber) {
       
       if (isMatch) {
         permittedStores.push(sheetStore);
-        console.log(`  ✅ Added permitted store: ${sheetStore}`);
+        console.log(`  Added permitted store: ${sheetStore}`);
       }
     }
     
-    console.log(`🎯 Final result: Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
+    console.log(`Final result: Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
     return permittedStores;
     
   } catch (error) {
-    console.error('❌ Error getting permitted stores:', error);
+    console.error('Error getting permitted stores:', error);
     return [];
   }
 }
@@ -784,28 +782,26 @@ async function handleMultipleOrderSelectionWithHiddenField(from, userInput, prod
   try {
     const userState = userStates[from];
     if (!userState) {
-      await sendWhatsAppMessage(from, '❌ Session expired. Start over: /→3', productId, phoneId);
+      await sendWhatsAppMessage(from, 'Session expired. Start over: /→3', productId, phoneId);
       return;
     }
     
     if (/^\d+$/.test(userInput.trim())) {
-      // Single store for all items
       const storeIndex = parseInt(userInput) - 1;
       const selectedStore = userState.permittedStores[storeIndex];
       
       if (selectedStore) {
         await createSingleStoreForm(from, selectedStore, userState.qualities, productId, phoneId);
       } else {
-        await sendWhatsAppMessage(from, `❌ Invalid store number`, productId, phoneId);
+        await sendWhatsAppMessage(from, `Invalid store number`, productId, phoneId);
       }
     } else {
-      // Multiple store combinations
       const combinations = parseMultipleOrderInput(userInput, userState);
       
       if (combinations.length > 0) {
         await createMultipleStoreForms(from, combinations, productId, phoneId);
       } else {
-        await sendWhatsAppMessage(from, '❌ Invalid format. Try: Quality-StoreNumber, Quality-StoreNumber', productId, phoneId);
+        await sendWhatsAppMessage(from, 'Invalid format. Try: Quality-StoreNumber, Quality-StoreNumber', productId, phoneId);
       }
     }
     
@@ -825,7 +821,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[2]) - 1; // FIXED: Use match[2] instead of match[1]
+        const storeIndex = parseInt(match[3]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -848,8 +844,8 @@ async function createSingleStoreForm(from, selectedStore, qualities, productId, 
       `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
       `&store=${encodeURIComponent(selectedStore)}`;
     
-    let confirmationMessage = `✅ *${selectedStore}*\n\n`;
-    confirmationMessage += `📋 ${formUrl}\n\n`;
+    let confirmationMessage = `*${selectedStore}*\n\n`;
+    confirmationMessage += `${formUrl}\n\n`;
     confirmationMessage += `_Type */* for main menu._`;
     
     await sendWhatsAppMessage(from, confirmationMessage, productId, phoneId);
@@ -864,9 +860,8 @@ async function createSingleStoreForm(from, selectedStore, qualities, productId, 
 async function createMultipleStoreForms(from, combinations, productId, phoneId) {
   try {
     const cleanPhone = from.replace(/^\+/, '');
-    let responseMessage = `✅ *MULTIPLE ORDER FORMS*\n\n`;
+    let responseMessage = `*MULTIPLE ORDER FORMS*\n\n`;
     
-    // Group by store
     const storeGroups = {};
     combinations.forEach(combo => {
       if (!storeGroups[combo.store]) {
@@ -875,15 +870,14 @@ async function createMultipleStoreForms(from, combinations, productId, phoneId) 
       storeGroups[combo.store].push(combo.quality);
     });
     
-    // Create form for each store
     Object.entries(storeGroups).forEach(([store, qualities]) => {
       const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
         `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
         `&store=${encodeURIComponent(store)}`;
       
-      responseMessage += `🏪 *${store}*\n`;
-      responseMessage += `📦 ${qualities.join(', ')}\n`;
-      responseMessage += `📋 ${formUrl}\n\n`;
+      responseMessage += `*${store}*\n`;
+      responseMessage += `${qualities.join(', ')}\n`;
+      responseMessage += `${formUrl}\n\n`;
     });
     
     responseMessage += `_Fill each form for your different store orders._`;
@@ -921,12 +915,12 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with FIXED Google Sheets API data reading!');
-  console.log(`📦 Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
-  console.log(`📁 Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
-  console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
-  console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
-  console.log('🔍 Debug: Send "DEBUG:phone_number" to check permissions');
-  console.log('🎯 Fixed order column search and multiple order parsing!');
+  console.log(`WhatsApp Bot running on port ${PORT}`);
+  console.log('Bot ready with professional messaging - no emojis');
+  console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
+  console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
+  console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
+  console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
+  console.log('Debug: Send "DEBUG:phone_number" to check permissions');
+  console.log('Professional version deployed successfully');
 });
