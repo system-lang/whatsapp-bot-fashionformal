@@ -73,7 +73,7 @@ async function getGoogleAuth() {
   }
 }
 
-// NEW: Get user greeting from Greetings sheet
+// FIXED: Get user greeting with comprehensive sheet access attempts
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`Getting greeting for phone: ${phoneNumber}`);
@@ -82,15 +82,84 @@ async function getUserGreeting(phoneNumber) {
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: GREETINGS_SHEET_ID,
-      range: 'Greetings!A:D', // Contact Number, Name, Salutation, Greetings
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
+    // First, get sheet metadata to find the correct sheet name
+    let rows = null;
+    
+    try {
+      // Get all sheet information first
+      const metaResponse = await sheets.spreadsheets.get({
+        spreadsheetId: GREETINGS_SHEET_ID,
+      });
+      
+      console.log('Available sheets in spreadsheet:');
+      metaResponse.data.sheets.forEach(sheet => {
+        console.log(`- Sheet: "${sheet.properties.title}" (ID: ${sheet.properties.sheetId})`);
+      });
+      
+      // Find the greetings sheet (look for GID 904469862 or name containing 'greet')
+      let greetingsSheet = metaResponse.data.sheets.find(sheet => 
+        sheet.properties.sheetId === 904469862
+      );
+      
+      if (!greetingsSheet) {
+        // Try to find by name containing 'greet'
+        greetingsSheet = metaResponse.data.sheets.find(sheet => 
+          sheet.properties.title.toLowerCase().includes('greet')
+        );
+      }
+      
+      if (greetingsSheet) {
+        const sheetName = greetingsSheet.properties.title;
+        console.log(`Found greetings sheet: "${sheetName}"`);
+        
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: GREETINGS_SHEET_ID,
+          range: `'${sheetName}'!A:D`,
+          valueRenderOption: 'UNFORMATTED_VALUE'
+        });
+        
+        rows = response.data.values;
+        console.log(`Successfully read ${rows ? rows.length : 0} rows from greetings sheet`);
+      }
+    } catch (metaError) {
+      console.log('Metadata approach failed, trying alternative ranges...');
+    }
+    
+    // Fallback: Try multiple range patterns
+    if (!rows) {
+      const attempts = [
+        'Greetings!A:D',
+        "'Greetings'!A:D", 
+        'Sheet2!A:D',
+        'Sheet1!A:D',
+        'A:D' // Last resort - default sheet
+      ];
+      
+      for (const range of attempts) {
+        try {
+          console.log(`Trying range: ${range}`);
+          const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: GREETINGS_SHEET_ID,
+            range: range,
+            valueRenderOption: 'UNFORMATTED_VALUE'
+          });
+          
+          if (response.data.values && response.data.values.length > 0) {
+            rows = response.data.values;
+            console.log(`Successfully accessed greetings with range: ${range}`);
+            break;
+          }
+        } catch (rangeError) {
+          console.log(`Range ${range} failed: ${rangeError.message}`);
+          continue;
+        }
+      }
+    }
+    
+    console.log('Greetings sheet raw data:', JSON.stringify(rows, null, 2));
+    
     if (!rows || rows.length === 0) {
-      console.log('No data found in Greetings sheet');
+      console.log('No data found in any Greetings sheet attempt');
       return null;
     }
 
@@ -106,6 +175,7 @@ async function getUserGreeting(phoneNumber) {
     
     console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
     
+    // Check each row for matches
     for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
       if (!row || row.length < 4) {
@@ -114,9 +184,11 @@ async function getUserGreeting(phoneNumber) {
       }
       
       const sheetContact = row[0] ? row.toString().trim() : '';
-      const name = row[12] ? row[12].toString().trim() : '';
-      const salutation = row[13] ? row[13].toString().trim() : '';
-      const greetings = row[14] ? row[14].toString().trim() : '';
+      const name = row[11] ? row[11].toString().trim() : '';
+      const salutation = row[12] ? row[12].toString().trim() : '';
+      const greetings = row[13] ? row[13].toString().trim() : '';
+      
+      console.log(`Row ${i + 1}: Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
       
       // Clean sheet contact multiple ways
       const sheetContactVariations = [
@@ -132,8 +204,8 @@ async function getUserGreeting(phoneNumber) {
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
         for (const sheetVar of sheetContactVariations) {
-          if (phoneVar === sheetVar && phoneVar.length >= 10) { // Ensure meaningful phone number
-            console.log(`Greeting match found! "${phoneVar}" === "${sheetVar}"`);
+          if (phoneVar === sheetVar && phoneVar.length >= 10) {
+            console.log(`✅ Greeting match found! "${phoneVar}" === "${sheetVar}"`);
             isMatch = true;
             break;
           }
@@ -142,7 +214,7 @@ async function getUserGreeting(phoneNumber) {
       }
       
       if (isMatch) {
-        console.log(`Found greeting for ${phoneNumber}: ${salutation} ${name}`);
+        console.log(`🎉 Found greeting for ${phoneNumber}: ${salutation} ${name}`);
         return {
           name: name,
           salutation: salutation,
@@ -151,16 +223,16 @@ async function getUserGreeting(phoneNumber) {
       }
     }
     
-    console.log(`No greeting found for ${phoneNumber}`);
+    console.log(`❌ No greeting found for ${phoneNumber} after checking all rows`);
     return null;
     
   } catch (error) {
-    console.error('Error getting user greeting:', error);
+    console.error('❌ Error getting user greeting:', error);
     return null;
   }
 }
 
-// NEW: Format greeting message
+// Format greeting message
 function formatGreetingMessage(greeting, mainMessage) {
   if (!greeting) {
     return mainMessage;
@@ -205,7 +277,7 @@ async function debugPermissionSheet(phoneNumber) {
       }
       
       const columnA = row[0] ? row.toString().trim() : '';
-      const columnB = row[12] ? row[12].toString().trim() : '';
+      const columnB = row[11] ? row[11].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
       console.log(`  Column A (raw): "${columnA}"`);
@@ -218,7 +290,7 @@ async function debugPermissionSheet(phoneNumber) {
         console.log(`  Malformed data detected in Column A`);
         const parts = columnA.split(',');
         extractedPhone = parts[0].trim();
-        extractedStore = columnB || (parts[12] ? parts[12].trim() : '');
+        extractedStore = columnB || (parts[11] ? parts[11].trim() : '');
       } else {
         extractedPhone = columnA;
         extractedStore = columnB;
@@ -265,6 +337,17 @@ app.post('/webhook', async (req, res) => {
     const phoneToDebug = trimmedMessage.replace('DEBUG:', '').trim() || from;
     await debugPermissionSheet(phoneToDebug);
     await sendWhatsAppMessage(from, `Debug completed for: ${phoneToDebug}\n\nCheck server logs for detailed permission analysis.\n\nType */menu* for main menu.`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // NEW: Temporary greeting debug
+  if (lowerMessage === '/debuggreet') {
+    const greeting = await getUserGreeting(from);
+    const message = greeting 
+      ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
+      : 'No greeting found';
+    
+    await sendWhatsAppMessage(from, `Greeting debug: ${message}`, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -608,7 +691,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[14].toString().trim() === orderNumber.trim()) {
+      if (row[13].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -646,11 +729,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row[13].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row ? row.toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -868,13 +951,13 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetStore = '';
       
       const columnAValue = row[0] ? row.toString().trim() : '';
-      const columnBValue = row[12] ? row[12].toString().trim() : '';
+      const columnBValue = row[11] ? row[11].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts.trim();
-        sheetStore = columnBValue || (parts[12] ? parts[12].trim() : '');
+        sheetContact = parts[0].trim();
+        sheetStore = columnBValue || (parts[11] ? parts[11].trim() : '');
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -1040,7 +1123,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[13]) - 1;
+        const storeIndex = parseInt(match[2]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -1135,12 +1218,13 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with personal greetings from Google Sheets');
+  console.log('Bot ready with FIXED personal greetings from Google Sheets');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`Greetings Sheet ID: ${GREETINGS_SHEET_ID} (Greetings tab)`);
-  console.log('Personal greetings: Users get personalized greetings from Greetings sheet');
+  console.log('FIXED: Comprehensive sheet access for greetings with metadata lookup');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
+  console.log('Debug command: /debuggreet - Test greeting functionality');
 });
