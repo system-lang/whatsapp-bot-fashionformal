@@ -268,12 +268,7 @@ Please select the product category:
 2. Jacket  
 3. Trouser
 
-*SHORTCUTS:*
-/shirting - Direct to Shirting
-/jacket - Direct to Jacket
-/trouser - Direct to Trouser
-
-_Type the number or use shortcuts..._`;
+_Type the number to continue..._`;
       
       await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
       return res.sendStatus(200);
@@ -379,11 +374,7 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
       responseMessage += `${orderStatus.message}\n\n`;
     }
     
-    responseMessage += `*SHORTCUTS:*\n`;
-    responseMessage += `/stock - Stock Query\n`;
-    responseMessage += `/${category.toLowerCase()} - ${category} Orders\n`;
-    responseMessage += `/menu - Main Menu\n\n`;
-    responseMessage += `_Use shortcuts for quick access_`;
+    responseMessage += `_Type */menu* to return to main menu._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
@@ -510,7 +501,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row ? row.toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -629,8 +620,7 @@ async function processStockQueryWithSmartStoreSelection(from, qualities, product
       responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
       responseMessage += `*Contact:* system@fashionformal.com\n\n`;
       responseMessage += `*Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
-      responseMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
-      responseMessage += `_Use shortcuts for quick access_`;
+      responseMessage += `_Type */menu* for main menu._`;
       
     } else if (permittedStores.length === 1) {
       // SMART: Single store - auto-generate form directly
@@ -645,8 +635,7 @@ async function processStockQueryWithSmartStoreSelection(from, qualities, product
       responseMessage += `*Your Store:* ${singleStore}\n\n`;
       responseMessage += `${formUrl}\n\n`;
       responseMessage += `_Order form ready - just fill quality, MTR, and remarks._\n\n`;
-      responseMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
-      responseMessage += `_Use shortcuts for quick access_`;
+      responseMessage += `_Type */menu* for main menu._`;
       
       // Set user state to completed since form is provided
       userStates[from] = { currentMenu: 'completed' };
@@ -729,13 +718,13 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetContact = '';
       let sheetStore = '';
       
-      const columnAValue = row[0] ? row[0].toString().trim() : '';
+      const columnAValue = row[0] ? row.toString().trim() : '';
       const columnBValue = row[1] ? row[1].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts.trim();
+        sheetContact = parts[0].trim();
         sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
       } else {
         sheetContact = columnAValue;
@@ -927,8 +916,7 @@ async function createSingleStoreForm(from, selectedStore, qualities, productId, 
     
     let confirmationMessage = `*${selectedStore}*\n\n`;
     confirmationMessage += `${formUrl}\n\n`;
-    confirmationMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
-    confirmationMessage += `_Use shortcuts for quick access_`;
+    confirmationMessage += `_Type */menu* for main menu._`;
     
     await sendWhatsAppMessage(from, confirmationMessage, productId, phoneId);
     
@@ -962,9 +950,7 @@ async function createMultipleStoreForms(from, combinations, productId, phoneId) 
       responseMessage += `${formUrl}\n\n`;
     });
     
-    responseMessage += `_Fill each form for your different store orders._\n\n`;
-    responseMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
-    responseMessage += `_Use shortcuts for quick access_`;
+    responseMessage += `_Fill each form for your different store orders._`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
@@ -1000,11 +986,11 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with smart shortcuts and direct access commands');
+  console.log('Bot ready with clean shortcuts - no shortcut mentions in responses');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('Smart shortcuts enhance user experience with direct access');
+  console.log('Clean UX - shortcuts work but not mentioned in all responses');
 });
