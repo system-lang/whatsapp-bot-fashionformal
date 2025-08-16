@@ -22,7 +22,7 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 // Google Sheets configuration
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
-const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE'; // Same sheet, different tab
+const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 
 // Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
@@ -73,7 +73,7 @@ async function getGoogleAuth() {
   }
 }
 
-// FINAL FIX: Properly extract contact field from comma-separated data
+// FIXED: Handle both array format and comma-separated format
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`Getting greeting for phone: ${phoneNumber}`);
@@ -170,7 +170,7 @@ async function getUserGreeting(phoneNumber) {
     
     console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
     
-    // FIXED: Check each row and handle comma-separated data properly
+    // FIXED: Handle proper array format (most common now)
     for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
       if (!row || row.length === 0) {
@@ -178,24 +178,24 @@ async function getUserGreeting(phoneNumber) {
         continue;
       }
       
-      // HANDLE COMMA-SEPARATED DATA: Check if all data is in first column
       let sheetContact, name, salutation, greetings;
       
-      if (row.length >= 4 && row[1] && row[1] && row[2] && !row.toString().includes(',')) {
-        // Normal case: separate columns (and first column doesn't contain commas)
-        sheetContact = row[0] ? row.toString().trim() : '';
-        name = row[3] ? row[3].toString().trim() : '';
-        salutation = row[1] ? row[1].toString().trim() : '';
+      // Check if we have proper array format (4+ columns with data)
+      if (row.length >= 4 && row[1] && row[2] && row[2]) {
+        // NORMAL ARRAY FORMAT (current format based on your logs)
+        sheetContact = row ? row.toString().trim() : '';
+        name = row[1] ? row[1].toString().trim() : '';
+        salutation = row[3] ? row[3].toString().trim() : '';
         greetings = row[2] ? row[2].toString().trim() : '';
-        console.log(`Row ${i + 1}: Normal format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
-      } else if (row[0] && row.toString().includes(',')) {
-        // COMMA-SEPARATED CASE: All data in first column - PROPERLY EXTRACT CONTACT
-        const parts = row[0].toString().split(',');
+        console.log(`Row ${i + 1}: Array format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
+      } else if (row && row[0].toString().includes(',')) {
+        // FALLBACK: Comma-separated format (in case it returns to old format)
+        const parts = row.toString().split(',');
         if (parts.length >= 4) {
-          sheetContact = parts.trim(); // FIXED: Use only the first part for contact matching
-          name = parts[3].trim();
-          salutation = parts[1].trim();
-          greetings = parts.slice(3).join(',').trim(); // Handle greetings with commas
+          sheetContact = parts.trim();
+          name = parts[1].trim();
+          salutation = parts[3].trim();
+          greetings = parts.slice(3).join(',').trim();
           console.log(`Row ${i + 1}: Comma-separated format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
         } else {
           console.log(`Row ${i + 1}: Insufficient comma-separated parts: ${JSON.stringify(parts)}`);
@@ -294,8 +294,8 @@ async function debugPermissionSheet(phoneNumber) {
         continue;
       }
       
-      const columnA = row[0] ? row[0].toString().trim() : '';
-      const columnB = row[3] ? row[3].toString().trim() : '';
+      const columnA = row[0] ? row.toString().trim() : '';
+      const columnB = row[1] ? row[1].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
       console.log(`  Column A (raw): "${columnA}"`);
@@ -307,8 +307,8 @@ async function debugPermissionSheet(phoneNumber) {
       if (columnA.includes(',')) {
         console.log(`  Malformed data detected in Column A`);
         const parts = columnA.split(',');
-        extractedPhone = parts[0].trim();
-        extractedStore = columnB || (parts[3] ? parts[3].trim() : '');
+        extractedPhone = parts.trim();
+        extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
       } else {
         extractedPhone = columnA;
         extractedStore = columnB;
@@ -969,13 +969,13 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetStore = '';
       
       const columnAValue = row[0] ? row.toString().trim() : '';
-      const columnBValue = row[3] ? row[3].toString().trim() : '';
+      const columnBValue = row[1] ? row[1].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
         sheetContact = parts[0].trim();
-        sheetStore = columnBValue || (parts[3] ? parts[3].trim() : '');
+        sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -1141,7 +1141,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[1]) - 1;
+        const storeIndex = parseInt(match[3]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -1236,13 +1236,13 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with FINAL FIXED personal greetings (contact extraction fixed)');
+  console.log('Bot ready with PERFECT greetings handling (array format + fallback)');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`Greetings Sheet ID: ${GREETINGS_SHEET_ID} (Greetings tab)`);
-  console.log('FINAL FIX: Proper contact extraction from comma-separated data');
+  console.log('PERFECT: Handles both array format and comma-separated format');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
   console.log('Debug command: /debuggreet - Test greeting functionality');
 });
