@@ -31,7 +31,7 @@ const LIVE_SHEET_ID = '1AxjCHsMxYUmEULaW1LxkW78g0Bv9fp4PkZteJO82uEA';
 const LIVE_SHEET_NAME = 'FMS';
 const COMPLETED_ORDER_FOLDER_ID = '1kgdPdnUK-FsnKZDE5yW6vtRf2H9d3YRE';
 
-// Production stages configuration - FIXED to check all stages
+// Production stages configuration
 const PRODUCTION_STAGES = [
   { name: 'CUT', column: 'O', nextStage: 'FUS' },
   { name: 'FUS', column: 'U', nextStage: 'PAS' },
@@ -72,6 +72,52 @@ async function getGoogleAuth() {
   }
 }
 
+// DEBUG: Permission sheet debugging function
+async function debugPermissionSheet(phoneNumber) {
+  try {
+    console.log(`🔍 DEBUG: Checking permissions for phone: ${phoneNumber}`);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STORE_PERMISSION_SHEET_ID,
+      range: 'A:B',
+    });
+
+    const rows = response.data.values;
+    console.log('📊 Raw data from permission sheet:');
+    console.log(JSON.stringify(rows, null, 2));
+    
+    if (!rows || rows.length === 0) {
+      console.log('❌ No data found in permission sheet');
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
+    console.log(`🔍 Looking for cleaned phone: "${cleanPhone}"`);
+    
+    console.log('\n📋 All permission entries:');
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0] || !row[1]) {
+        console.log(`Row ${i + 1}: EMPTY ROW`);
+        continue;
+      }
+      
+      const sheetContact = row.toString().replace(/^\+91|^91|^0/, '');
+      const sheetStore = row[1].toString().trim();
+      
+      const isMatch = sheetContact === cleanPhone;
+      console.log(`Row ${i + 1}: "${sheetContact}" → "${sheetStore}" ${isMatch ? '✅ MATCH!' : ''}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error reading permission sheet:', error);
+  }
+}
+
 app.post('/webhook', async (req, res) => {
   console.log('Full webhook data:', JSON.stringify(req.body, null, 2));
 
@@ -89,6 +135,14 @@ app.post('/webhook', async (req, res) => {
 
   if (trimmedMessage === '') {
     console.log('Empty message after trim - staying silent');
+    return res.sendStatus(200);
+  }
+
+  // DEBUG: Permission testing
+  if (trimmedMessage.startsWith('DEBUG:')) {
+    const phoneToDebug = trimmedMessage.replace('DEBUG:', '').trim() || from;
+    await debugPermissionSheet(phoneToDebug);
+    await sendWhatsAppMessage(from, `🔍 Debug completed for: ${phoneToDebug}\n\nCheck server logs for detailed permission analysis.\n\nType */* for main menu.`, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -331,10 +385,9 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[1].toString().trim() === orderNumber.trim()) {
+      if (row[2].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
-        // FIXED: Check all production stages
         const stageStatus = checkProductionStages(row);
         return {
           found: true,
@@ -370,11 +423,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[1].toString().trim() === orderNumber.trim()) {
+      if (row[2].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row ? row.toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -392,7 +445,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
   }
 }
 
-// FIXED: Check ALL production stages for last completed one
+// Check ALL production stages for last completed one
 function checkProductionStages(row) {
   try {
     let lastCompletedStage = null;
@@ -458,7 +511,7 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// STOCK QUERY FUNCTIONS - COMPLETE IMPLEMENTATION
+// ENHANCED: Stock query with multiple orders and debug support
 async function processStockQueryWithMultipleOrders(from, qualities, productId, phoneId) {
   try {
     console.log('Processing stock query with multiple orders for:', from);
@@ -467,6 +520,8 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
 
     const stockResults = await searchStockInAllSheets(qualities);
     const permittedStores = await getUserPermittedStores(from);
+    
+    console.log(`📊 Stock search completed. User ${from} has ${permittedStores.length} permitted stores:`, permittedStores);
     
     let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
     
@@ -486,7 +541,9 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
     
     if (permittedStores.length === 0) {
       responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
-      responseMessage += `Contact: *system@fashionformal.com*\n\n`;
+      responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
+      responseMessage += `📞 Contact: *system@fashionformal.com*\n\n`;
+      responseMessage += `🔍 *Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
       responseMessage += `_Type */* for main menu._`;
     } else {
       responseMessage += `📋 *PLACE MULTIPLE ORDERS:*\n\n`;
@@ -510,14 +567,15 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in stock query:', error);
     await sendWhatsAppMessage(from, '❌ *Error searching stock*\n\nType */* to return to main menu.', productId, phoneId);
   }
 }
 
+// ENHANCED: Get user permitted stores with comprehensive debugging
 async function getUserPermittedStores(phoneNumber) {
   try {
-    console.log(`Getting permitted stores for phone: ${phoneNumber}`);
+    console.log(`🔍 Getting permitted stores for phone: ${phoneNumber}`);
     
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
@@ -530,32 +588,77 @@ async function getUserPermittedStores(phoneNumber) {
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
+      console.log('❌ No data found in Store Permission sheet');
       return [];
     }
 
-    const permittedStores = [];
-    const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
+    console.log(`📊 Found ${rows.length} total rows in permission sheet`);
     
-    for (let i = 1; i < rows.length; i++) {
+    const permittedStores = [];
+    
+    // Try multiple cleaning strategies for comprehensive matching
+    const phoneVariations = [
+      phoneNumber, // Original
+      phoneNumber.replace(/^\+91/, ''), // Remove +91
+      phoneNumber.replace(/^\+/, ''), // Remove any +
+      phoneNumber.replace(/^91/, ''), // Remove 91
+      phoneNumber.replace(/^0/, ''), // Remove leading 0
+      phoneNumber.replace(/[\s\-\(\)]/g, ''), // Remove spaces, dashes, parentheses
+    ];
+    
+    console.log(`🔍 Trying phone variations: ${phoneVariations.join(', ')}`);
+    
+    for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
-      if (!row[0] || !row[2]) continue;
+      if (!row[0] || !row[1]) {
+        console.log(`Row ${i + 1}: Skipping empty row`);
+        continue;
+      }
       
-      const contactNumber = row.toString().replace(/^\+91|^91|^0/, '');
-      const storeName = row[2].toString().trim();
+      const sheetContact = row.toString().trim();
+      const sheetStore = row[1].toString().trim();
       
-      if (contactNumber === cleanPhone) {
-        permittedStores.push(storeName);
+      // Clean sheet contact multiple ways
+      const sheetContactVariations = [
+        sheetContact,
+        sheetContact.replace(/^\+91/, ''),
+        sheetContact.replace(/^\+/, ''),
+        sheetContact.replace(/^91/, ''),
+        sheetContact.replace(/^0/, ''),
+        sheetContact.replace(/[\s\-\(\)]/g, ''),
+      ];
+      
+      console.log(`Row ${i + 1}: Checking "${sheetContact}" (variations: ${sheetContactVariations.join(', ')}) → "${sheetStore}"`);
+      
+      // Check all variations
+      let isMatch = false;
+      for (const phoneVar of phoneVariations) {
+        for (const sheetVar of sheetContactVariations) {
+          if (phoneVar === sheetVar) {
+            console.log(`✅ MATCH FOUND! "${phoneVar}" === "${sheetVar}"`);
+            isMatch = true;
+            break;
+          }
+        }
+        if (isMatch) break;
+      }
+      
+      if (isMatch) {
+        permittedStores.push(sheetStore);
+        console.log(`✅ Added permitted store: ${sheetStore}`);
       }
     }
     
+    console.log(`🎯 Final result: Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
     return permittedStores;
     
   } catch (error) {
-    console.error('Error getting permitted stores:', error);
+    console.error('❌ Error getting permitted stores:', error);
     return [];
   }
 }
 
+// Search stock in all sheets
 async function searchStockInAllSheets(qualities) {
   const results = {};
   
@@ -632,6 +735,7 @@ async function searchStockInAllSheets(qualities) {
   }
 }
 
+// Handle multiple order selection
 async function handleMultipleOrderSelectionWithHiddenField(from, userInput, productId, phoneId) {
   try {
     const userState = userStates[from];
@@ -774,9 +878,11 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with COMPLETE Order Query + Stock Query functionality!');
+  console.log('✅ Bot ready with DEBUG support + Enhanced Permission Checking!');
   console.log(`📦 Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`📁 Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
-  console.log('🎯 Both Order Query and Stock Query now fully implemented!');
+  console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
+  console.log('🔍 Debug: Send "DEBUG:phone_number" to check permissions');
+  console.log('🎯 Enhanced permission matching with multiple phone format variations!');
 });
