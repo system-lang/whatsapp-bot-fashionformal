@@ -72,7 +72,7 @@ async function getGoogleAuth() {
   }
 }
 
-// DEBUG: Permission sheet debugging function
+// FIXED: Debug permission sheet with proper API handling
 async function debugPermissionSheet(phoneNumber) {
   try {
     console.log(`🔍 DEBUG: Checking permissions for phone: ${phoneNumber}`);
@@ -83,7 +83,8 @@ async function debugPermissionSheet(phoneNumber) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STORE_PERMISSION_SHEET_ID,
-      range: 'A:B',
+      range: 'store permission!A:B', // Explicit sheet name
+      valueRenderOption: 'UNFORMATTED_VALUE'
     });
 
     const rows = response.data.values;
@@ -98,19 +99,40 @@ async function debugPermissionSheet(phoneNumber) {
     const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
     console.log(`🔍 Looking for cleaned phone: "${cleanPhone}"`);
     
-    console.log('\n📋 All permission entries:');
+    console.log('\n📋 Analyzing all permission entries:');
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row[0] || !row[1]) {
-        console.log(`Row ${i + 1}: EMPTY ROW`);
+      if (!row || row.length < 2) {
+        console.log(`Row ${i + 1}: INCOMPLETE ROW - ${JSON.stringify(row)}`);
         continue;
       }
       
-      const sheetContact = row.toString().replace(/^\+91|^91|^0/, '');
-      const sheetStore = row[1].toString().trim();
+      const columnA = row[0] ? row.toString().trim() : '';
+      const columnB = row[1] ? row[1].toString().trim() : '';
       
-      const isMatch = sheetContact === cleanPhone;
-      console.log(`Row ${i + 1}: "${sheetContact}" → "${sheetStore}" ${isMatch ? '✅ MATCH!' : ''}`);
+      console.log(`Row ${i + 1}:`);
+      console.log(`  Column A (raw): "${columnA}"`);
+      console.log(`  Column B (raw): "${columnB}"`);
+      
+      let extractedPhone = '';
+      let extractedStore = '';
+      
+      if (columnA.includes(',')) {
+        console.log(`  ⚠️ Malformed data detected in Column A`);
+        const parts = columnA.split(',');
+        extractedPhone = parts[0].trim();
+        extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
+      } else {
+        extractedPhone = columnA;
+        extractedStore = columnB;
+      }
+      
+      const cleanExtracted = extractedPhone.replace(/^\+91|^91|^0/, '');
+      const isMatch = cleanExtracted === cleanPhone;
+      
+      console.log(`  Extracted Phone: "${extractedPhone}" (cleaned: "${cleanExtracted}")`);
+      console.log(`  Extracted Store: "${extractedStore}"`);
+      console.log(`  ${isMatch ? '✅ MATCH!' : '❌ No match'}`);
     }
     
   } catch (error) {
@@ -427,7 +449,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row.toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -572,7 +594,7 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
   }
 }
 
-// ENHANCED: Get user permitted stores with comprehensive debugging
+// FIXED: Get user permitted stores with proper API handling
 async function getUserPermittedStores(phoneNumber) {
   try {
     console.log(`🔍 Getting permitted stores for phone: ${phoneNumber}`);
@@ -581,9 +603,12 @@ async function getUserPermittedStores(phoneNumber) {
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
+    // Use explicit sheet name and proper API options
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STORE_PERMISSION_SHEET_ID,
-      range: 'A:B',
+      range: 'store permission!A:B', // Specify sheet name explicitly
+      valueRenderOption: 'UNFORMATTED_VALUE', // Get raw values
+      dateTimeRenderOption: 'FORMATTED_STRING'
     });
 
     const rows = response.data.values;
@@ -593,30 +618,48 @@ async function getUserPermittedStores(phoneNumber) {
     }
 
     console.log(`📊 Found ${rows.length} total rows in permission sheet`);
+    console.log('📋 Raw rows data:', JSON.stringify(rows.slice(0, 5), null, 2)); // Log first 5 rows
     
     const permittedStores = [];
     
-    // Try multiple cleaning strategies for comprehensive matching
+    // Clean incoming phone number multiple ways
     const phoneVariations = [
-      phoneNumber, // Original
-      phoneNumber.replace(/^\+91/, ''), // Remove +91
-      phoneNumber.replace(/^\+/, ''), // Remove any +
-      phoneNumber.replace(/^91/, ''), // Remove 91
-      phoneNumber.replace(/^0/, ''), // Remove leading 0
-      phoneNumber.replace(/[\s\-\(\)]/g, ''), // Remove spaces, dashes, parentheses
+      phoneNumber,
+      phoneNumber.replace(/^\+91/, ''),
+      phoneNumber.replace(/^\+/, ''),
+      phoneNumber.replace(/^91/, ''),
+      phoneNumber.replace(/^0/, ''),
+      phoneNumber.replace(/[\s\-\(\)]/g, ''),
     ];
     
     console.log(`🔍 Trying phone variations: ${phoneVariations.join(', ')}`);
     
     for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
-      if (!row[0] || !row[1]) {
-        console.log(`Row ${i + 1}: Skipping empty row`);
+      if (!row || row.length < 2) {
+        console.log(`Row ${i + 1}: Skipping incomplete row: ${JSON.stringify(row)}`);
         continue;
       }
       
-      const sheetContact = row.toString().trim();
-      const sheetStore = row[1].toString().trim();
+      // Extract phone and store - handle potential formatting issues
+      let sheetContact = '';
+      let sheetStore = '';
+      
+      // Check if Column A contains comma-separated data (API issue)
+      const columnAValue = row[0] ? row[0].toString().trim() : '';
+      const columnBValue = row[1] ? row[1].toString().trim() : '';
+      
+      if (columnAValue.includes(',')) {
+        // Handle malformed API response where Column A has "phone,store"
+        console.log(`⚠️ Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
+        const parts = columnAValue.split(',');
+        sheetContact = parts[0].trim();
+        sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
+      } else {
+        // Normal case: Column A = phone, Column B = store
+        sheetContact = columnAValue;
+        sheetStore = columnBValue;
+      }
       
       // Clean sheet contact multiple ways
       const sheetContactVariations = [
@@ -628,14 +671,15 @@ async function getUserPermittedStores(phoneNumber) {
         sheetContact.replace(/[\s\-\(\)]/g, ''),
       ];
       
-      console.log(`Row ${i + 1}: Checking "${sheetContact}" (variations: ${sheetContactVariations.join(', ')}) → "${sheetStore}"`);
+      console.log(`Row ${i + 1}: Contact="${sheetContact}" → Store="${sheetStore}"`);
+      console.log(`  Contact variations: ${sheetContactVariations.join(', ')}`);
       
       // Check all variations
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
         for (const sheetVar of sheetContactVariations) {
           if (phoneVar === sheetVar) {
-            console.log(`✅ MATCH FOUND! "${phoneVar}" === "${sheetVar}"`);
+            console.log(`  ✅ MATCH FOUND! "${phoneVar}" === "${sheetVar}"`);
             isMatch = true;
             break;
           }
@@ -645,7 +689,7 @@ async function getUserPermittedStores(phoneNumber) {
       
       if (isMatch) {
         permittedStores.push(sheetStore);
-        console.log(`✅ Added permitted store: ${sheetStore}`);
+        console.log(`  ✅ Added permitted store: ${sheetStore}`);
       }
     }
     
@@ -714,7 +758,7 @@ async function searchStockInAllSheets(qualities) {
                 cellQualityUpper.includes(qualityUpper) ||
                 cellQualityLower.includes(qualityLower)) {
               
-              const stockValue = row[4] ? row[3].toString().trim() : '0';
+              const stockValue = row[4] ? row[4].toString().trim() : '0';
               console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
               results[searchQuality][file.name] = stockValue;
               break;
@@ -781,7 +825,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[4]) - 1;
+        const storeIndex = parseInt(match[3]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -878,11 +922,11 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with DEBUG support + Enhanced Permission Checking!');
+  console.log('✅ Bot ready with FIXED Google Sheets API data reading!');
   console.log(`📦 Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`📁 Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log('🔍 Debug: Send "DEBUG:phone_number" to check permissions');
-  console.log('🎯 Enhanced permission matching with multiple phone format variations!');
+  console.log('🎯 Fixed API data reading with proper sheet name and value rendering!');
 });
