@@ -160,17 +160,20 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // ENHANCED: Handle shortcuts and commands
+  const lowerMessage = trimmedMessage.toLowerCase();
+
   // DEBUG: Permission testing
   if (trimmedMessage.startsWith('DEBUG:')) {
     const phoneToDebug = trimmedMessage.replace('DEBUG:', '').trim() || from;
     await debugPermissionSheet(phoneToDebug);
-    await sendWhatsAppMessage(from, `Debug completed for: ${phoneToDebug}\n\nCheck server logs for detailed permission analysis.\n\nType */* for main menu.`, productId, phoneId);
+    await sendWhatsAppMessage(from, `Debug completed for: ${phoneToDebug}\n\nCheck server logs for detailed permission analysis.\n\nType */menu* for main menu.`, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // Handle main menu trigger
-  if (trimmedMessage === '/') {
-    console.log('Menu command received - activating bot');
+  // NEW: Smart shortcuts
+  if (lowerMessage === '/menu' || trimmedMessage === '/') {
+    console.log('Main menu command received');
     userStates[from] = { currentMenu: 'main' };
     const mainMenu = `*MAIN MENU*
 
@@ -181,13 +184,58 @@ Please select an option:
 3. Stock Query
 4. Document
 
-_Type the number to continue..._`;
+*SHORTCUTS:*
+/stock - Direct Stock Query
+/shirting - Shirting Orders
+/jacket - Jacket Orders  
+/trouser - Trouser Orders
+
+_Type the number or use shortcuts..._`;
     
     await sendWhatsAppMessage(from, mainMenu, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // Handle menu selections
+  // NEW: Direct Stock Query shortcut
+  if (lowerMessage === '/stock') {
+    console.log('Direct stock query shortcut used');
+    userStates[from] = { currentMenu: 'stock_query' };
+    const stockQueryPrompt = `*STOCK QUERY*
+
+Please enter the Quality names you want to search for.
+
+*Multiple qualities:* Separate with commas
+*Example:* LTS8156, ETCH8029, Quality3
+
+_Type your quality names below:_`;
+    
+    await sendWhatsAppMessage(from, stockQueryPrompt, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // NEW: Direct Order Query shortcuts
+  if (lowerMessage === '/shirting') {
+    console.log('Direct shirting order query shortcut used');
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
+    await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  if (lowerMessage === '/jacket') {
+    console.log('Direct jacket order query shortcut used');
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
+    await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  if (lowerMessage === '/trouser') {
+    console.log('Direct trouser order query shortcut used');
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
+    await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Handle menu selections (existing logic)
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     if (trimmedMessage === '1') {
       const ticketMenu = `*TICKET OPTIONS*
@@ -203,7 +251,7 @@ ${links.leave}
 *DELEGATION*
 ${links.delegation}
 
-_Type */* to return to main menu._`;
+_Type */menu* to return to main menu._`;
       
       await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
       userStates[from].currentMenu = 'completed';
@@ -220,7 +268,12 @@ Please select the product category:
 2. Jacket  
 3. Trouser
 
-_Type the number to continue..._`;
+*SHORTCUTS:*
+/shirting - Direct to Shirting
+/jacket - Direct to Jacket
+/trouser - Direct to Trouser
+
+_Type the number or use shortcuts..._`;
       
       await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
       return res.sendStatus(200);
@@ -242,42 +295,42 @@ _Type your quality names below:_`;
     }
 
     if (trimmedMessage === '4') {
-      await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType */* to return to main menu.', productId, phoneId);
+      await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType */menu* to return to main menu.', productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
 
-    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, 3, or 4.\n\nType */* to see the main menu again.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, 3, or 4.\n\nType */menu* to see the main menu again.', productId, phoneId);
     return res.sendStatus(200);
   }
 
   // Handle order query category selection
   if (userStates[from] && userStates[from].currentMenu === 'order_query') {
-    if (trimmedMessage === '1') {
+    if (trimmedMessage === '1' || lowerMessage === '/shirting') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
       await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-    if (trimmedMessage === '2') {
+    if (trimmedMessage === '2' || lowerMessage === '/jacket') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
       await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-    if (trimmedMessage === '3') {
+    if (trimmedMessage === '3' || lowerMessage === '/trouser') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
       await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, or 3.\n\nType */* to return to main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, or 3.\n\nType */menu* to return to main menu.', productId, phoneId);
     return res.sendStatus(200);
   }
 
   // Handle order number input
   if (userStates[from] && userStates[from].currentMenu === 'order_number_input') {
-    if (trimmedMessage !== '/') {
+    if (trimmedMessage !== '/menu') {
       const category = userStates[from].category;
       const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
       
@@ -289,7 +342,7 @@ _Type your quality names below:_`;
 
   // Handle stock query input
   if (userStates[from] && userStates[from].currentMenu === 'stock_query') {
-    if (trimmedMessage !== '/') {
+    if (trimmedMessage !== '/menu') {
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
       await processStockQueryWithSmartStoreSelection(from, qualities, productId, phoneId);
       return res.sendStatus(200);
@@ -298,7 +351,7 @@ _Type your quality names below:_`;
 
   // Handle multiple order selection
   if (userStates[from] && userStates[from].currentMenu === 'multiple_order_selection') {
-    if (trimmedMessage !== '/') {
+    if (trimmedMessage !== '/menu') {
       await handleMultipleOrderSelectionWithHiddenField(from, trimmedMessage, productId, phoneId);
       return res.sendStatus(200);
     }
@@ -326,13 +379,17 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
       responseMessage += `${orderStatus.message}\n\n`;
     }
     
-    responseMessage += `_Type */* to return to main menu._`;
+    responseMessage += `*SHORTCUTS:*\n`;
+    responseMessage += `/stock - Stock Query\n`;
+    responseMessage += `/${category.toLowerCase()} - ${category} Orders\n`;
+    responseMessage += `/menu - Main Menu\n\n`;
+    responseMessage += `_Use shortcuts for quick access_`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
   } catch (error) {
     console.error('Error processing order query:', error);
-    await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType */* to return to main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType */menu* to return to main menu.', productId, phoneId);
   }
 }
 
@@ -453,7 +510,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
+        const dispatchDate = row ? row.toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -572,7 +629,8 @@ async function processStockQueryWithSmartStoreSelection(from, qualities, product
       responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
       responseMessage += `*Contact:* system@fashionformal.com\n\n`;
       responseMessage += `*Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
-      responseMessage += `_Type */* for main menu._`;
+      responseMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
+      responseMessage += `_Use shortcuts for quick access_`;
       
     } else if (permittedStores.length === 1) {
       // SMART: Single store - auto-generate form directly
@@ -587,7 +645,8 @@ async function processStockQueryWithSmartStoreSelection(from, qualities, product
       responseMessage += `*Your Store:* ${singleStore}\n\n`;
       responseMessage += `${formUrl}\n\n`;
       responseMessage += `_Order form ready - just fill quality, MTR, and remarks._\n\n`;
-      responseMessage += `_Type */* for main menu._`;
+      responseMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
+      responseMessage += `_Use shortcuts for quick access_`;
       
       // Set user state to completed since form is provided
       userStates[from] = { currentMenu: 'completed' };
@@ -616,7 +675,7 @@ async function processStockQueryWithSmartStoreSelection(from, qualities, product
     
   } catch (error) {
     console.error('Error in stock query:', error);
-    await sendWhatsAppMessage(from, 'Error searching stock\n\nType */* to return to main menu.', productId, phoneId);
+    await sendWhatsAppMessage(from, 'Error searching stock\n\nType */menu* to return to main menu.', productId, phoneId);
   }
 }
 
@@ -670,13 +729,13 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetContact = '';
       let sheetStore = '';
       
-      const columnAValue = row[0] ? row.toString().trim() : '';
+      const columnAValue = row[0] ? row[0].toString().trim() : '';
       const columnBValue = row[1] ? row[1].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts[0].trim();
+        sheetContact = parts.trim();
         sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
       } else {
         sheetContact = columnAValue;
@@ -778,7 +837,7 @@ async function searchStockInAllSheets(qualities) {
                 cellQualityUpper.includes(qualityUpper) ||
                 cellQualityLower.includes(qualityLower)) {
               
-              const stockValue = row[4] ? row[3].toString().trim() : '0';
+              const stockValue = row[4] ? row[4].toString().trim() : '0';
               console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
               results[searchQuality][file.name] = stockValue;
               break;
@@ -804,7 +863,7 @@ async function handleMultipleOrderSelectionWithHiddenField(from, userInput, prod
   try {
     const userState = userStates[from];
     if (!userState) {
-      await sendWhatsAppMessage(from, 'Session expired. Start over: /→3', productId, phoneId);
+      await sendWhatsAppMessage(from, 'Session expired. Start over: /stock or /menu', productId, phoneId);
       return;
     }
     
@@ -843,7 +902,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[4]) - 1;
+        const storeIndex = parseInt(match[3]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -868,7 +927,8 @@ async function createSingleStoreForm(from, selectedStore, qualities, productId, 
     
     let confirmationMessage = `*${selectedStore}*\n\n`;
     confirmationMessage += `${formUrl}\n\n`;
-    confirmationMessage += `_Type */* for main menu._`;
+    confirmationMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
+    confirmationMessage += `_Use shortcuts for quick access_`;
     
     await sendWhatsAppMessage(from, confirmationMessage, productId, phoneId);
     
@@ -902,7 +962,9 @@ async function createMultipleStoreForms(from, combinations, productId, phoneId) 
       responseMessage += `${formUrl}\n\n`;
     });
     
-    responseMessage += `_Fill each form for your different store orders._`;
+    responseMessage += `_Fill each form for your different store orders._\n\n`;
+    responseMessage += `*SHORTCUTS:*\n/menu - Main Menu\n/stock - Stock Query\n\n`;
+    responseMessage += `_Use shortcuts for quick access_`;
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
@@ -938,11 +1000,11 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with smart single store auto-selection');
+  console.log('Bot ready with smart shortcuts and direct access commands');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
-  console.log('Debug: Send "DEBUG:phone_number" to check permissions');
-  console.log('Smart store selection: Single store users get direct form links');
+  console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
+  console.log('Smart shortcuts enhance user experience with direct access');
 });
