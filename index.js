@@ -108,7 +108,7 @@ async function debugPermissionSheet(phoneNumber) {
       }
       
       const columnA = row[0] ? row.toString().trim() : '';
-      const columnB = row[1] ? row[1].toString().trim() : '';
+      const columnB = row[3] ? row[3].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
       console.log(`  Column A (raw): "${columnA}"`);
@@ -121,7 +121,7 @@ async function debugPermissionSheet(phoneNumber) {
         console.log(`  ⚠️ Malformed data detected in Column A`);
         const parts = columnA.split(',');
         extractedPhone = parts[0].trim();
-        extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
+        extractedStore = columnB || (parts[3] ? parts[3].trim() : '');
       } else {
         extractedPhone = columnA;
         extractedStore = columnB;
@@ -402,12 +402,12 @@ async function searchInLiveSheet(sheets, orderNumber) {
       return { found: false };
     }
 
-    // Find order in column D (index 3)
+    // FIXED: Find order in column D (index 3)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[2].toString().trim() === orderNumber.trim()) {
+      if (row[1].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -445,11 +445,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[2].toString().trim() === orderNumber.trim()) {
+      if (row[1].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row.toString().trim() : 'Date not available';
+        const dispatchDate = row ? row.toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -646,15 +646,15 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetStore = '';
       
       // Check if Column A contains comma-separated data (API issue)
-      const columnAValue = row[0] ? row[0].toString().trim() : '';
-      const columnBValue = row[1] ? row[1].toString().trim() : '';
+      const columnAValue = row[0] ? row.toString().trim() : '';
+      const columnBValue = row[3] ? row[3].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         // Handle malformed API response where Column A has "phone,store"
         console.log(`⚠️ Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts[0].trim();
-        sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
+        sheetContact = parts.trim();
+        sheetStore = columnBValue || (parts[3] ? parts[3].trim() : '');
       } else {
         // Normal case: Column A = phone, Column B = store
         sheetContact = columnAValue;
@@ -825,7 +825,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[3]) - 1;
+        const storeIndex = parseInt(match[2]) - 1; // FIXED: Use match[2] instead of match[1]
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -928,5 +928,5 @@ app.listen(PORT, () => {
   console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`🔐 Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log('🔍 Debug: Send "DEBUG:phone_number" to check permissions');
-  console.log('🎯 Fixed API data reading with proper sheet name and value rendering!');
+  console.log('🎯 Fixed order column search and multiple order parsing!');
 });
