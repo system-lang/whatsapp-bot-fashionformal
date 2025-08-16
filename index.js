@@ -331,7 +331,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row[1].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         // FIXED: Check all production stages
@@ -370,11 +370,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row[1].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
+        const dispatchDate = row ? row.toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -458,21 +458,295 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// Keep all other existing functions (stock query, etc.)
+// STOCK QUERY FUNCTIONS - COMPLETE IMPLEMENTATION
 async function processStockQueryWithMultipleOrders(from, qualities, productId, phoneId) {
-  // ... existing stock query implementation
+  try {
+    console.log('Processing stock query with multiple orders for:', from);
+    
+    await sendWhatsAppMessage(from, '🔍 *Searching stock information...*\nPlease wait.', productId, phoneId);
+
+    const stockResults = await searchStockInAllSheets(qualities);
+    const permittedStores = await getUserPermittedStores(from);
+    
+    let responseMessage = `📊 *STOCK QUERY RESULTS*\n\n`;
+    
+    qualities.forEach(quality => {
+      responseMessage += `🔸 *${quality}*\n`;
+      
+      const storeData = stockResults[quality] || {};
+      if (Object.keys(storeData).length === 0) {
+        responseMessage += `No data found\n\n`;
+      } else {
+        Object.entries(storeData).forEach(([storeName, stock]) => {
+          responseMessage += `${storeName} -- ${stock}\n`;
+        });
+        responseMessage += `\n`;
+      }
+    });
+    
+    if (permittedStores.length === 0) {
+      responseMessage += `❌ *NO ORDERING PERMISSION*\n\n`;
+      responseMessage += `Contact: *system@fashionformal.com*\n\n`;
+      responseMessage += `_Type */* for main menu._`;
+    } else {
+      responseMessage += `📋 *PLACE MULTIPLE ORDERS:*\n\n`;
+      responseMessage += `*Format:* Quality-StoreNumber, Quality-StoreNumber\n`;
+      responseMessage += `*Example:* LTS8156-1, ETCH8029-2\n\n`;
+      
+      responseMessage += `*Your Store Numbers:*\n`;
+      permittedStores.forEach((store, index) => {
+        responseMessage += `${index + 1}. ${store}\n`;
+      });
+      
+      responseMessage += `\nReply with combinations or single store number for all items.`;
+      
+      userStates[from] = {
+        currentMenu: 'multiple_order_selection',
+        permittedStores: permittedStores,
+        qualities: qualities
+      };
+    }
+    
+    await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+    
+  } catch (error) {
+    console.error('Error:', error);
+    await sendWhatsAppMessage(from, '❌ *Error searching stock*\n\nType */* to return to main menu.', productId, phoneId);
+  }
 }
 
 async function getUserPermittedStores(phoneNumber) {
-  // ... existing implementation
+  try {
+    console.log(`Getting permitted stores for phone: ${phoneNumber}`);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STORE_PERMISSION_SHEET_ID,
+      range: 'A:B',
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    const permittedStores = [];
+    const cleanPhone = phoneNumber.replace(/^\+91|^91|^0/, '');
+    
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0] || !row[2]) continue;
+      
+      const contactNumber = row.toString().replace(/^\+91|^91|^0/, '');
+      const storeName = row[2].toString().trim();
+      
+      if (contactNumber === cleanPhone) {
+        permittedStores.push(storeName);
+      }
+    }
+    
+    return permittedStores;
+    
+  } catch (error) {
+    console.error('Error getting permitted stores:', error);
+    return [];
+  }
 }
 
 async function searchStockInAllSheets(qualities) {
-  // ... existing implementation
+  const results = {};
+  
+  qualities.forEach(quality => {
+    results[quality] = {};
+  });
+
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const folderFiles = await drive.files.list({
+      q: `'${STOCK_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    console.log('Found stock files:', folderFiles.data.files.length);
+
+    for (const file of folderFiles.data.files) {
+      console.log(`Searching in stock sheet: ${file.name}`);
+      
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: file.id,
+          range: 'A:E',
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+          console.log(`No data in ${file.name}`);
+          continue;
+        }
+        
+        qualities.forEach(searchQuality => {
+          const qualityUpper = searchQuality.toUpperCase().trim();
+          const qualityLower = searchQuality.toLowerCase().trim();
+          const qualityOriginal = searchQuality.trim();
+          
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row[0]) continue;
+            
+            const cellQuality = row.toString().trim();
+            const cellQualityUpper = cellQuality.toUpperCase();
+            const cellQualityLower = cellQuality.toLowerCase();
+            
+            if (cellQuality === qualityOriginal || 
+                cellQualityUpper === qualityUpper || 
+                cellQualityLower === qualityLower ||
+                cellQuality.includes(qualityOriginal) ||
+                cellQualityUpper.includes(qualityUpper) ||
+                cellQualityLower.includes(qualityLower)) {
+              
+              const stockValue = row[4] ? row[3].toString().trim() : '0';
+              console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
+              results[searchQuality][file.name] = stockValue;
+              break;
+            }
+          }
+        });
+
+      } catch (sheetError) {
+        console.error(`Error accessing stock sheet ${file.name}:`, sheetError.message);
+      }
+    }
+
+    return results;
+
+  } catch (error) {
+    console.error('Error searching stock sheets:', error);
+    throw error;
+  }
 }
 
 async function handleMultipleOrderSelectionWithHiddenField(from, userInput, productId, phoneId) {
-  // ... existing implementation
+  try {
+    const userState = userStates[from];
+    if (!userState) {
+      await sendWhatsAppMessage(from, '❌ Session expired. Start over: /→3', productId, phoneId);
+      return;
+    }
+    
+    if (/^\d+$/.test(userInput.trim())) {
+      // Single store for all items
+      const storeIndex = parseInt(userInput) - 1;
+      const selectedStore = userState.permittedStores[storeIndex];
+      
+      if (selectedStore) {
+        await createSingleStoreForm(from, selectedStore, userState.qualities, productId, phoneId);
+      } else {
+        await sendWhatsAppMessage(from, `❌ Invalid store number`, productId, phoneId);
+      }
+    } else {
+      // Multiple store combinations
+      const combinations = parseMultipleOrderInput(userInput, userState);
+      
+      if (combinations.length > 0) {
+        await createMultipleStoreForms(from, combinations, productId, phoneId);
+      } else {
+        await sendWhatsAppMessage(from, '❌ Invalid format. Try: Quality-StoreNumber, Quality-StoreNumber', productId, phoneId);
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error handling multiple orders:', error);
+  }
+}
+
+function parseMultipleOrderInput(input, userState) {
+  try {
+    const combinations = [];
+    const parts = input.split(',');
+    
+    parts.forEach(part => {
+      const trimmed = part.trim();
+      const match = trimmed.match(/^(.+)-(\d+)$/);
+      
+      if (match) {
+        const quality = match[1].trim();
+        const storeIndex = parseInt(match[4]) - 1;
+        const store = userState.permittedStores[storeIndex];
+        
+        if (store && userState.qualities.includes(quality)) {
+          combinations.push({ quality, store });
+        }
+      }
+    });
+    
+    return combinations;
+  } catch (error) {
+    return [];
+  }
+}
+
+async function createSingleStoreForm(from, selectedStore, qualities, productId, phoneId) {
+  try {
+    const cleanPhone = from.replace(/^\+/, '');
+    
+    const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
+      `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
+      `&store=${encodeURIComponent(selectedStore)}`;
+    
+    let confirmationMessage = `✅ *${selectedStore}*\n\n`;
+    confirmationMessage += `📋 ${formUrl}\n\n`;
+    confirmationMessage += `_Type */* for main menu._`;
+    
+    await sendWhatsAppMessage(from, confirmationMessage, productId, phoneId);
+    
+    userStates[from] = { currentMenu: 'completed' };
+    
+  } catch (error) {
+    console.error('Error creating single store form:', error);
+  }
+}
+
+async function createMultipleStoreForms(from, combinations, productId, phoneId) {
+  try {
+    const cleanPhone = from.replace(/^\+/, '');
+    let responseMessage = `✅ *MULTIPLE ORDER FORMS*\n\n`;
+    
+    // Group by store
+    const storeGroups = {};
+    combinations.forEach(combo => {
+      if (!storeGroups[combo.store]) {
+        storeGroups[combo.store] = [];
+      }
+      storeGroups[combo.store].push(combo.quality);
+    });
+    
+    // Create form for each store
+    Object.entries(storeGroups).forEach(([store, qualities]) => {
+      const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
+        `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
+        `&store=${encodeURIComponent(store)}`;
+      
+      responseMessage += `🏪 *${store}*\n`;
+      responseMessage += `📦 ${qualities.join(', ')}\n`;
+      responseMessage += `📋 ${formUrl}\n\n`;
+    });
+    
+    responseMessage += `_Fill each form for your different store orders._`;
+    
+    await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+    
+    userStates[from] = { currentMenu: 'completed' };
+    
+  } catch (error) {
+    console.error('Error creating multiple forms:', error);
+  }
 }
 
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
@@ -500,8 +774,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🤖 WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Bot ready with FIXED Order Query - Checks ALL columns for last completed stage!');
+  console.log('✅ Bot ready with COMPLETE Order Query + Stock Query functionality!');
   console.log(`📦 Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`📁 Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
-  console.log('🎯 Order Query: Now correctly finds LAST completed stage across ALL columns!');
+  console.log(`📊 Stock Folder ID: ${STOCK_FOLDER_ID}`);
+  console.log('🎯 Both Order Query and Stock Query now fully implemented!');
 });
