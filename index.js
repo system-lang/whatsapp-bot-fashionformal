@@ -22,6 +22,7 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 // Google Sheets configuration
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
+const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE'; // Same sheet, different tab
 
 // Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
@@ -72,6 +73,102 @@ async function getGoogleAuth() {
   }
 }
 
+// NEW: Get user greeting from Greetings sheet
+async function getUserGreeting(phoneNumber) {
+  try {
+    console.log(`Getting greeting for phone: ${phoneNumber}`);
+    
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: GREETINGS_SHEET_ID,
+      range: 'Greetings!A:D', // Contact Number, Name, Salutation, Greetings
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('No data found in Greetings sheet');
+      return null;
+    }
+
+    // Clean incoming phone number multiple ways
+    const phoneVariations = [
+      phoneNumber,
+      phoneNumber.replace(/^\+91/, ''),
+      phoneNumber.replace(/^\+/, ''),
+      phoneNumber.replace(/^91/, ''),
+      phoneNumber.replace(/^0/, ''),
+      phoneNumber.replace(/[\s\-\(\)]/g, ''),
+    ];
+    
+    console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
+    
+    for (let i = 1; i < rows.length; i++) { // Skip header row
+      const row = rows[i];
+      if (!row || row.length < 4) {
+        console.log(`Row ${i + 1}: Skipping incomplete greeting row: ${JSON.stringify(row)}`);
+        continue;
+      }
+      
+      const sheetContact = row[0] ? row.toString().trim() : '';
+      const name = row[12] ? row[12].toString().trim() : '';
+      const salutation = row[13] ? row[13].toString().trim() : '';
+      const greetings = row[14] ? row[14].toString().trim() : '';
+      
+      // Clean sheet contact multiple ways
+      const sheetContactVariations = [
+        sheetContact,
+        sheetContact.replace(/^\+91/, ''),
+        sheetContact.replace(/^\+/, ''),
+        sheetContact.replace(/^91/, ''),
+        sheetContact.replace(/^0/, ''),
+        sheetContact.replace(/[\s\-\(\)]/g, ''),
+      ];
+      
+      // Check for match
+      let isMatch = false;
+      for (const phoneVar of phoneVariations) {
+        for (const sheetVar of sheetContactVariations) {
+          if (phoneVar === sheetVar && phoneVar.length >= 10) { // Ensure meaningful phone number
+            console.log(`Greeting match found! "${phoneVar}" === "${sheetVar}"`);
+            isMatch = true;
+            break;
+          }
+        }
+        if (isMatch) break;
+      }
+      
+      if (isMatch) {
+        console.log(`Found greeting for ${phoneNumber}: ${salutation} ${name}`);
+        return {
+          name: name,
+          salutation: salutation,
+          greetings: greetings
+        };
+      }
+    }
+    
+    console.log(`No greeting found for ${phoneNumber}`);
+    return null;
+    
+  } catch (error) {
+    console.error('Error getting user greeting:', error);
+    return null;
+  }
+}
+
+// NEW: Format greeting message
+function formatGreetingMessage(greeting, mainMessage) {
+  if (!greeting) {
+    return mainMessage;
+  }
+  
+  return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
+}
+
 // Debug permission sheet with proper API handling
 async function debugPermissionSheet(phoneNumber) {
   try {
@@ -108,7 +205,7 @@ async function debugPermissionSheet(phoneNumber) {
       }
       
       const columnA = row[0] ? row.toString().trim() : '';
-      const columnB = row[1] ? row[1].toString().trim() : '';
+      const columnB = row[12] ? row[12].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
       console.log(`  Column A (raw): "${columnA}"`);
@@ -121,7 +218,7 @@ async function debugPermissionSheet(phoneNumber) {
         console.log(`  Malformed data detected in Column A`);
         const parts = columnA.split(',');
         extractedPhone = parts[0].trim();
-        extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
+        extractedStore = columnB || (parts[12] ? parts[12].trim() : '');
       } else {
         extractedPhone = columnA;
         extractedStore = columnB;
@@ -160,7 +257,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // ENHANCED: Handle shortcuts and commands
+  // ENHANCED: Handle shortcuts and commands with greetings
   const lowerMessage = trimmedMessage.toLowerCase();
 
   // DEBUG: Permission testing
@@ -171,10 +268,14 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // NEW: Smart shortcuts
+  // NEW: Smart shortcuts with greetings
   if (lowerMessage === '/menu' || trimmedMessage === '/') {
     console.log('Main menu command received');
     userStates[from] = { currentMenu: 'main' };
+    
+    // Get user greeting
+    const greeting = await getUserGreeting(from);
+    
     const mainMenu = `*MAIN MENU*
 
 Please select an option:
@@ -192,14 +293,19 @@ Please select an option:
 
 _Type the number or use shortcuts..._`;
     
-    await sendWhatsAppMessage(from, mainMenu, productId, phoneId);
+    const finalMessage = formatGreetingMessage(greeting, mainMenu);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // NEW: Direct Stock Query shortcut
+  // NEW: Direct Stock Query shortcut with greeting
   if (lowerMessage === '/stock') {
     console.log('Direct stock query shortcut used');
     userStates[from] = { currentMenu: 'stock_query' };
+    
+    // Get user greeting
+    const greeting = await getUserGreeting(from);
+    
     const stockQueryPrompt = `*STOCK QUERY*
 
 Please enter the Quality names you want to search for.
@@ -209,29 +315,72 @@ Please enter the Quality names you want to search for.
 
 _Type your quality names below:_`;
     
-    await sendWhatsAppMessage(from, stockQueryPrompt, productId, phoneId);
+    const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // NEW: Direct Order Query shortcuts
+  // NEW: Direct Order Query shortcuts with greeting
   if (lowerMessage === '/shirting') {
     console.log('Direct shirting order query shortcut used');
     userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
-    await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+    
+    // Get user greeting
+    const greeting = await getUserGreeting(from);
+    
+    const shirtingQuery = `*SHIRTING ORDER QUERY*
+
+Please enter your Order Number(s):
+
+*Single order:* ABC123
+*Multiple orders:* ABC123, DEF456, GHI789
+
+_Type your order numbers below:_`;
+    
+    const finalMessage = formatGreetingMessage(greeting, shirtingQuery);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
   if (lowerMessage === '/jacket') {
     console.log('Direct jacket order query shortcut used');
     userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
-    await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+    
+    // Get user greeting
+    const greeting = await getUserGreeting(from);
+    
+    const jacketQuery = `*JACKET ORDER QUERY*
+
+Please enter your Order Number(s):
+
+*Single order:* ABC123
+*Multiple orders:* ABC123, DEF456, GHI789
+
+_Type your order numbers below:_`;
+    
+    const finalMessage = formatGreetingMessage(greeting, jacketQuery);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
   if (lowerMessage === '/trouser') {
     console.log('Direct trouser order query shortcut used');
     userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
-    await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\n*Single order:* ABC123\n*Multiple orders:* ABC123, DEF456, GHI789\n\n_Type your order numbers below:_`, productId, phoneId);
+    
+    // Get user greeting
+    const greeting = await getUserGreeting(from);
+    
+    const trouserQuery = `*TROUSER ORDER QUERY*
+
+Please enter your Order Number(s):
+
+*Single order:* ABC123
+*Multiple orders:* ABC123, DEF456, GHI789
+
+_Type your order numbers below:_`;
+    
+    const finalMessage = formatGreetingMessage(greeting, trouserQuery);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -459,7 +608,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[2].toString().trim() === orderNumber.trim()) {
+      if (row[14].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -497,11 +646,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[2].toString().trim() === orderNumber.trim()) {
+      if (row[3].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
+        const dispatchDate = row ? row.toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -719,13 +868,13 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetStore = '';
       
       const columnAValue = row[0] ? row.toString().trim() : '';
-      const columnBValue = row[1] ? row[1].toString().trim() : '';
+      const columnBValue = row[12] ? row[12].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts[0].trim();
-        sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
+        sheetContact = parts.trim();
+        sheetStore = columnBValue || (parts[12] ? parts[12].trim() : '');
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -891,7 +1040,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[3]) - 1;
+        const storeIndex = parseInt(match[13]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -986,11 +1135,12 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with clean shortcuts - no shortcut mentions in responses');
+  console.log('Bot ready with personal greetings from Google Sheets');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
+  console.log(`Greetings Sheet ID: ${GREETINGS_SHEET_ID} (Greetings tab)`);
+  console.log('Personal greetings: Users get personalized greetings from Greetings sheet');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('Clean UX - shortcuts work but not mentioned in all responses');
 });
