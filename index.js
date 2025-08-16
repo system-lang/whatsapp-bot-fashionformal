@@ -291,7 +291,7 @@ _Type your quality names below:_`;
   if (userStates[from] && userStates[from].currentMenu === 'stock_query') {
     if (trimmedMessage !== '/') {
       const qualities = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-      await processStockQueryWithMultipleOrders(from, qualities, productId, phoneId);
+      await processStockQueryWithSmartStoreSelection(from, qualities, productId, phoneId);
       return res.sendStatus(200);
     }
   }
@@ -449,11 +449,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row[2].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row.toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -537,10 +537,10 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// Stock query with multiple orders and debug support
-async function processStockQueryWithMultipleOrders(from, qualities, productId, phoneId) {
+// ENHANCED: Smart stock query with auto single store selection
+async function processStockQueryWithSmartStoreSelection(from, qualities, productId, phoneId) {
   try {
-    console.log('Processing stock query with multiple orders for:', from);
+    console.log('Processing stock query with smart store selection for:', from);
     
     await sendWhatsAppMessage(from, '*Searching stock information...*\n\nPlease wait.', productId, phoneId);
 
@@ -551,6 +551,7 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
     
     let responseMessage = `*STOCK QUERY RESULTS*\n\n`;
     
+    // Display stock results
     qualities.forEach(quality => {
       responseMessage += `*${quality}*\n`;
       
@@ -566,12 +567,33 @@ async function processStockQueryWithMultipleOrders(from, qualities, productId, p
     });
     
     if (permittedStores.length === 0) {
+      // No permission - show error message
       responseMessage += `*NO ORDERING PERMISSION*\n\n`;
       responseMessage += `Your contact number (${from}) is not authorized to place orders from any store.\n\n`;
       responseMessage += `*Contact:* system@fashionformal.com\n\n`;
       responseMessage += `*Troubleshooting:* Send "DEBUG:${from}" to check your permissions.\n\n`;
       responseMessage += `_Type */* for main menu._`;
+      
+    } else if (permittedStores.length === 1) {
+      // SMART: Single store - auto-generate form directly
+      const singleStore = permittedStores[0];
+      const cleanPhone = from.replace(/^\+/, '');
+      
+      const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url` +
+        `&entry.740712049=${encodeURIComponent(cleanPhone)}` +
+        `&store=${encodeURIComponent(singleStore)}`;
+      
+      responseMessage += `*PLACE ORDER*\n\n`;
+      responseMessage += `*Your Store:* ${singleStore}\n\n`;
+      responseMessage += `${formUrl}\n\n`;
+      responseMessage += `_Order form ready - just fill quality, MTR, and remarks._\n\n`;
+      responseMessage += `_Type */* for main menu._`;
+      
+      // Set user state to completed since form is provided
+      userStates[from] = { currentMenu: 'completed' };
+      
     } else {
+      // Multiple stores - show selection options
       responseMessage += `*PLACE MULTIPLE ORDERS:*\n\n`;
       responseMessage += `*Format:* Quality-StoreNumber, Quality-StoreNumber\n`;
       responseMessage += `*Example:* LTS8156-1, ETCH8029-2\n\n`;
@@ -756,7 +778,7 @@ async function searchStockInAllSheets(qualities) {
                 cellQualityUpper.includes(qualityUpper) ||
                 cellQualityLower.includes(qualityLower)) {
               
-              const stockValue = row[4] ? row[4].toString().trim() : '0';
+              const stockValue = row[4] ? row[3].toString().trim() : '0';
               console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
               results[searchQuality][file.name] = stockValue;
               break;
@@ -821,7 +843,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[3]) - 1;
+        const storeIndex = parseInt(match[4]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -916,11 +938,11 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with professional messaging - no emojis');
+  console.log('Bot ready with smart single store auto-selection');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log('Debug: Send "DEBUG:phone_number" to check permissions');
-  console.log('Professional version deployed successfully');
+  console.log('Smart store selection: Single store users get direct form links');
 });
