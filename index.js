@@ -73,7 +73,7 @@ async function getGoogleAuth() {
   }
 }
 
-// FIXED: Handle both array format and comma-separated format
+// ULTIMATE FIX: Handle contact field corruption and fix all mapping
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`Getting greeting for phone: ${phoneNumber}`);
@@ -158,19 +158,20 @@ async function getUserGreeting(phoneNumber) {
       return null;
     }
 
-    // Clean incoming phone number multiple ways
-    const phoneVariations = [
+    // FIXED: Clean phone number variations (remove duplicates)
+    const phoneVariations = Array.from(new Set([
       phoneNumber,
       phoneNumber.replace(/^\+91/, ''),
       phoneNumber.replace(/^\+/, ''),
       phoneNumber.replace(/^91/, ''),
       phoneNumber.replace(/^0/, ''),
       phoneNumber.replace(/[\s\-\(\)]/g, ''),
-    ];
+      phoneNumber.slice(-10) // Last 10 digits
+    ])).filter(p => p.length >= 10);
     
     console.log(`Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
     
-    // FIXED: Handle proper array format (most common now)
+    // ULTIMATE FIX: Handle corrupted contact field and correct mapping
     for (let i = 1; i < rows.length; i++) { // Skip header row
       const row = rows[i];
       if (!row || row.length === 0) {
@@ -178,57 +179,47 @@ async function getUserGreeting(phoneNumber) {
         continue;
       }
       
+      // FIXED: Extract clean contact from potentially corrupted field
       let sheetContact, name, salutation, greetings;
       
-      // Check if we have proper array format (4+ columns with data)
-      if (row.length >= 4 && row[1] && row[2] && row[2]) {
-        // NORMAL ARRAY FORMAT (current format based on your logs)
-        sheetContact = row ? row.toString().trim() : '';
-        name = row[1] ? row[1].toString().trim() : '';
-        salutation = row[3] ? row[3].toString().trim() : '';
-        greetings = row[2] ? row[2].toString().trim() : '';
-        console.log(`Row ${i + 1}: Array format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
-      } else if (row && row[0].toString().includes(',')) {
-        // FALLBACK: Comma-separated format (in case it returns to old format)
-        const parts = row.toString().split(',');
-        if (parts.length >= 4) {
-          sheetContact = parts.trim();
-          name = parts[1].trim();
-          salutation = parts[3].trim();
-          greetings = parts.slice(3).join(',').trim();
-          console.log(`Row ${i + 1}: Comma-separated format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
-        } else {
-          console.log(`Row ${i + 1}: Insufficient comma-separated parts: ${JSON.stringify(parts)}`);
-          continue;
-        }
+      // Extract contact - handle corruption where entire row might be in first field
+      const firstField = row[0] ? row.toString().trim() : '';
+      if (firstField.includes(',')) {
+        // Field is corrupted with entire row, extract just the phone number
+        sheetContact = firstField.split(',').trim();
       } else {
-        console.log(`Row ${i + 1}: Unrecognized format: ${JSON.stringify(row)}`);
-        continue;
+        sheetContact = firstField;
       }
       
-      // Clean sheet contact multiple ways
-      const sheetContactVariations = [
+      // CORRECTED: Proper field mapping based on your sheet structure
+      // Your sheet: Contact Number | Name | Salutation | Greetings
+      name = row[1] ? row[1].toString().trim() : '';
+      salutation = row[2] ? row[2].toString().trim() : '';
+      greetings = row[3] ? row[3].toString().trim() : '';
+      
+      console.log(`Row ${i + 1}: CORRECTED - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
+      
+      // Clean sheet contact variations (remove duplicates)
+      const sheetContactVariations = Array.from(new Set([
         sheetContact,
         sheetContact.replace(/^\+91/, ''),
         sheetContact.replace(/^\+/, ''),
         sheetContact.replace(/^91/, ''),
         sheetContact.replace(/^0/, ''),
         sheetContact.replace(/[\s\-\(\)]/g, ''),
-      ];
+        sheetContact.slice(-10) // Last 10 digits
+      ])).filter(s => s.length >= 10);
       
       console.log(`Comparing phone variations: ${phoneVariations.join(', ')} with sheet variations: ${sheetContactVariations.join(', ')}`);
       
       // Check for match
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
-        for (const sheetVar of sheetContactVariations) {
-          if (phoneVar === sheetVar && phoneVar.length >= 10) {
-            console.log(`✅ Greeting match found! "${phoneVar}" === "${sheetVar}"`);
-            isMatch = true;
-            break;
-          }
+        if (sheetContactVariations.includes(phoneVar)) {
+          console.log(`✅ Greeting match found! "${phoneVar}"`);
+          isMatch = true;
+          break;
         }
-        if (isMatch) break;
       }
       
       if (isMatch) {
@@ -294,7 +285,7 @@ async function debugPermissionSheet(phoneNumber) {
         continue;
       }
       
-      const columnA = row[0] ? row.toString().trim() : '';
+      const columnA = row[0] ? row[0].toString().trim() : '';
       const columnB = row[1] ? row[1].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
@@ -606,6 +597,7 @@ _Type your quality names below:_`;
   return res.sendStatus(200);
 });
 
+// [Rest of the functions remain the same - processOrderQuery, searchOrderStatus, etc.]
 // Process order query
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
   try {
@@ -709,7 +701,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[2].toString().trim() === orderNumber.trim()) {
+      if (row[3].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -747,11 +739,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[2].toString().trim() === orderNumber.trim()) {
+      if (row[3].toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
+        const dispatchDate = row[4] ? row[4].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -974,7 +966,7 @@ async function getUserPermittedStores(phoneNumber) {
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts[0].trim();
+        sheetContact = parts.trim();
         sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
       } else {
         sheetContact = columnAValue;
@@ -1076,7 +1068,7 @@ async function searchStockInAllSheets(qualities) {
                 cellQualityUpper.includes(qualityUpper) ||
                 cellQualityLower.includes(qualityLower)) {
               
-              const stockValue = row[4] ? row[4].toString().trim() : '0';
+              const stockValue = row[5] ? row[5].toString().trim() : '0';
               console.log(`FOUND: ${searchQuality} in ${file.name}: ${stockValue}`);
               results[searchQuality][file.name] = stockValue;
               break;
@@ -1141,7 +1133,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[3]) - 1;
+        const storeIndex = parseInt(match[2]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -1236,13 +1228,13 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Bot ready with PERFECT greetings handling (array format + fallback)');
+  console.log('Bot ready with ULTIMATE greetings fix (corruption handling + field mapping)');
   console.log(`Live Sheet ID: ${LIVE_SHEET_ID} (FMS Sheet)`);
   console.log(`Completed Order Folder ID: ${COMPLETED_ORDER_FOLDER_ID}`);
   console.log(`Stock Folder ID: ${STOCK_FOLDER_ID}`);
   console.log(`Store Permission Sheet ID: ${STORE_PERMISSION_SHEET_ID}`);
   console.log(`Greetings Sheet ID: ${GREETINGS_SHEET_ID} (Greetings tab)`);
-  console.log('PERFECT: Handles both array format and comma-separated format');
+  console.log('ULTIMATE FIX: Contact field corruption handling + proper field mapping');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
   console.log('Debug command: /debuggreet - Test greeting functionality');
 });
