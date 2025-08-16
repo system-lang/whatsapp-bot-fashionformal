@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
-const PDFDocument = require('pdfkit'); // NEW: PDF generation
+const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const app = express();
@@ -211,8 +211,8 @@ async function getUserGreeting(phoneNumber) {
       // Proper field mapping based on your sheet structure
       // Your sheet: Contact Number | Name | Salutation | Greetings
       const name = row[1] ? row[1].toString().trim() : '';
-      const salutation = row[2] ? row[2].toString().trim() : '';
-      const greetings = row[3] ? row[3].toString().trim() : '';
+      const salutation = row[1] ? row[1].toString().trim() : '';
+      const greetings = row ? row.toString().trim() : '';
       
       console.log(`Row ${i + 1}: FINAL - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
       
@@ -267,7 +267,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// NEW: Enhanced Smart Stock Search with Partial Matching
+// FIXED: Enhanced Smart Stock Search with Alphanumeric Support and Clean Output
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -297,7 +297,7 @@ async function searchStockWithPartialMatch(searchTerms) {
       try {
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: file.id,
-          range: 'A:E',
+          range: 'A:E', // Only need columns A (code) and E (stock)
         });
 
         const rows = response.data.values;
@@ -311,16 +311,16 @@ async function searchStockWithPartialMatch(searchTerms) {
           const row = rows[i];
           if (!row[0]) continue;
           
-          const qualityCode = row.toString().trim();
-          const stockValue = row[4] ? row[4].toString().trim() : '0';
+          const qualityCode = row[0].toString().trim();
+          const stockValue = row ? row.toString().trim() : '0'; // Column E (index 4)
           
           // Check each search term for partial matches
           searchTerms.forEach(searchTerm => {
             const cleanSearchTerm = searchTerm.trim();
             
-            // SMART SEARCH: Check if search term is contained anywhere in quality code
-            if (cleanSearchTerm.length >= 5 && qualityCode.includes(cleanSearchTerm)) {
-              console.log(`📍 PARTIAL MATCH: "${cleanSearchTerm}" found in "${qualityCode}" at ${file.name}`);
+            // FIXED: Accept any 5+ character alphanumeric substring (not just digits)
+            if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
+              console.log(`📍 ALPHANUMERIC MATCH: "${cleanSearchTerm}" found in "${qualityCode}" at ${file.name} - Stock: ${stockValue}`);
               
               results[searchTerm].push({
                 qualityCode: qualityCode,
@@ -345,7 +345,7 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// NEW: Generate PDF for stock results
+// FIXED: Generate PDF showing only Quality Code and Stock (Column E)
 async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -412,8 +412,9 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
           doc.fontSize(11)
              .font('Helvetica');
           
+          // FIXED: Only show Quality Code and Stock (Column E)
           items.forEach(item => {
-            doc.text(`  ${item.qualityCode} — Stock: ${item.stock}`);
+            doc.text(`  ${item.qualityCode}: ${item.stock}`);
           });
           
           doc.moveDown(0.5);
@@ -451,12 +452,9 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   }
 }
 
-// NEW: Send file via WhatsApp API
+// Send file via WhatsApp API
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
   try {
-    // Note: This is a placeholder - you'll need to upload the file to a publicly accessible URL
-    // and then send the link via WhatsApp. Most WhatsApp APIs support document sending.
-    
     console.log(`Would send file ${filename} to ${to}`);
     console.log(`File location: ${filepath}`);
     
@@ -484,26 +482,26 @@ _Type */menu* for main menu._`;
   }
 }
 
-// NEW: Enhanced Smart Stock Query with Partial Matching and PDF Generation
+// FIXED: Smart Stock Query with Alphanumeric Support and Clean Output
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     console.log('Processing SMART stock query for:', from);
     console.log('Search terms:', searchTerms);
     
-    // Validate search terms (minimum 5 digits)
+    // FIXED: Validate search terms (minimum 5 characters, alphanumeric allowed)
     const validTerms = searchTerms.filter(term => {
-      const cleanTerm = term.replace(/[^0-9]/g, '');
-      return cleanTerm.length >= 5;
+      const cleanTerm = term.trim();
+      return cleanTerm.length >= 5; // Accept any 5+ character string (alphanumeric)
     });
     
     if (validTerms.length === 0) {
       await sendWhatsAppMessage(from, `❌ *Invalid Search*
 
-Please provide at least 5 digits for searching.
+Please provide at least 5 characters for searching.
 
 *Examples:*
 - 11010 (finds 11010088471-001)
-- 10088 (finds 11010088471-001) 
+- ABC12 (finds ABC123456789)
 - 88471 (finds 11010088471-001)
 
 _Type */menu* for main menu._`, productId, phoneId);
@@ -538,9 +536,9 @@ No stock items found containing:
 ${validTerms.map(term => `• ${term}`).join('\n')}
 
 *Try:*
-- Different digit combinations
-- Shorter search terms (5+ digits)
-- Contact support for assistance
+- Different search combinations
+- Shorter terms (5+ characters)
+- Both letters and numbers work
 
 _Type */menu* for main menu._`;
       
@@ -550,7 +548,7 @@ _Type */menu* for main menu._`;
     
     // Decide: WhatsApp message vs PDF
     if (totalResults <= 15) {
-      // SHORT LIST: Send as WhatsApp message
+      // SHORT LIST: Send as WhatsApp message - FIXED: Only show code and stock
       let responseMessage = `🎯 *Smart Search Results*\n\n`;
       
       validTerms.forEach(term => {
@@ -558,8 +556,9 @@ _Type */menu* for main menu._`;
         if (termResults.length > 0) {
           responseMessage += `*"${term}" (${termResults.length} found)*\n`;
           
+          // FIXED: Only show Quality Code and Stock Value
           termResults.forEach(result => {
-            responseMessage += `${result.store}: ${result.qualityCode} — ${result.stock}\n`;
+            responseMessage += `${result.qualityCode}: ${result.stock}\n`;
           });
           responseMessage += `\n`;
         }
@@ -653,7 +652,7 @@ async function debugPermissionSheet(phoneNumber) {
       }
       
       const columnA = row[0] ? row[0].toString().trim() : '';
-      const columnB = row[1] ? row[1].toString().trim() : '';
+      const columnB = row[2] ? row[2].toString().trim() : '';
       
       console.log(`Row ${i + 1}:`);
       console.log(`  Column A (raw): "${columnA}"`);
@@ -666,7 +665,7 @@ async function debugPermissionSheet(phoneNumber) {
         console.log(`  Malformed data detected in Column A`);
         const parts = columnA.split(',');
         extractedPhone = parts[0].trim();
-        extractedStore = columnB || (parts[1] ? parts[1].trim() : '');
+        extractedStore = columnB || (parts[2] ? parts[2].trim() : '');
       } else {
         extractedPhone = columnA;
         extractedStore = columnB;
@@ -767,19 +766,19 @@ _Type the number or use shortcuts..._`;
     
     const stockQueryPrompt = `*SMART STOCK QUERY* 🔍
 
-Enter any 5+ digit code that appears in the stock quality names:
+Enter any 5+ character code (letters/numbers):
 
 *Examples:*
 • 11010 → finds 11010088471-001
-• 10088 → finds 11010088471-001  
+• ABC12 → finds ABC123456-XYZ
 • 88471 → finds 11010088471-001
 
 *Multiple searches:* Separate with commas
-*Example:* 11010, 20055, 88471
+*Example:* 11010, ABC12, 88471
 
-_Smart search will find partial matches!_
+_Smart search finds partial matches!_
 
-Type your search digits below:`;
+Type your search terms below:`;
     
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -894,19 +893,19 @@ _Type the number to continue..._`;
       
       const stockQueryPrompt = `*SMART STOCK QUERY* 🔍
 
-Enter any 5+ digit code that appears in the stock quality names:
+Enter any 5+ character code (letters/numbers):
 
 *Examples:*
 • 11010 → finds 11010088471-001
-• 10088 → finds 11010088471-001  
+• ABC12 → finds ABC123456-XYZ
 • 88471 → finds 11010088471-001
 
 *Multiple searches:* Separate with commas
-*Example:* 11010, 20055, 88471
+*Example:* 11010, ABC12, 88471
 
-_Smart search will find partial matches!_
+_Smart search finds partial matches!_
 
-Type your search digits below:`;
+Type your search terms below:`;
       
       await sendWhatsAppMessage(from, stockQueryPrompt, productId, phoneId);
       return res.sendStatus(200);
@@ -958,7 +957,7 @@ Type your search digits below:`;
     }
   }
 
-  // NEW: Handle smart stock query input
+  // FIXED: Handle smart stock query input (alphanumeric support)
   if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
     if (trimmedMessage !== '/menu') {
       const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
@@ -1083,7 +1082,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row.toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -1125,7 +1124,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
-        const dispatchDate = row[5] ? row[5].toString().trim() : 'Date not available';
+        const dispatchDate = row[87] ? row[87].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -1259,14 +1258,14 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetContact = '';
       let sheetStore = '';
       
-      const columnAValue = row[0] ? row[0].toString().trim() : '';
-      const columnBValue = row[1] ? row[1].toString().trim() : '';
+      const columnAValue = row[0] ? row.toString().trim() : '';
+      const columnBValue = row[2] ? row[2].toString().trim() : '';
       
       if (columnAValue.includes(',')) {
         console.log(`Row ${i + 1}: Detected malformed data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',');
-        sheetContact = parts.trim();
-        sheetStore = columnBValue || (parts[1] ? parts[1].trim() : '');
+        sheetContact = parts[0].trim();
+        sheetStore = columnBValue || (parts[2] ? parts[2].trim() : '');
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -1450,12 +1449,12 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('🚀 Bot ready with SMART STOCK SEARCH and PDF generation!');
-  console.log('✨ New Features:');
-  console.log('🔍 Smart partial matching (5+ digits anywhere in quality code)');
-  console.log('📄 Automatic PDF generation for large results (>15 items)');
+  console.log('🚀 Bot ready with FIXED SMART STOCK SEARCH!');
+  console.log('✨ Fixed Features:');
+  console.log('🔍 Alphanumeric partial matching (5+ characters: letters/numbers)');
+  console.log('📄 Clean output showing only Quality Code and Stock (Column E)');
   console.log('⚡ Fast substring search across all stock sheets');
   console.log('📊 Smart output: WhatsApp text vs PDF based on result count');
-  console.log('🎯 User-friendly examples and error handling');
+  console.log('🎯 User-friendly examples for alphanumeric search');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
 });
