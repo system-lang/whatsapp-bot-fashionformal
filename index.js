@@ -117,7 +117,7 @@ async function getGoogleAuth() {
   }
 }
 
-// CORRECTED: Get user greeting - Col A=Contact, Col B=Name, Col C=Salutation, Col D=Greetings
+// FIXED: Get user greeting - handle the correct data format from your logs
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`GREETING: Searching for phone: ${phoneNumber}`);
@@ -177,16 +177,31 @@ async function getUserGreeting(phoneNumber) {
     // Search through all rows (skip header row)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row || row.length < 4) {
-        console.log(`GREETING: Row ${i+1}: Incomplete row, skipping`);
+      if (!row || row.length === 0) {
+        console.log(`GREETING: Row ${i+1}: Empty row, skipping`);
         continue;
       }
       
-      // CORRECTED: Col A=Contact, Col B=Name, Col C=Salutation, Col D=Greetings
-      const sheetContact = row[0] ? row.toString().trim() : '';
-      const name = row[1] ? row[1].toString().trim() : '';
-      const salutation = row[2] ? row[2].toString().trim() : '';
-      const greetings = row ? row.toString().trim() : '';
+      // FIXED: Based on your logs, the data is coming correctly in separate columns
+      // Your log shows: [919088058655, "Jaydeep", "Hi", "Hope you are doing well"]
+      let sheetContact = '';
+      let name = '';
+      let salutation = '';
+      let greetings = '';
+      
+      // Convert contact to string safely
+      if (row[0] !== null && row[0] !== undefined) {
+        if (typeof row === 'number') {
+          sheetContact = row.toString();
+        } else {
+          sheetContact = row.toString().trim();
+        }
+      }
+      
+      // Extract other fields
+      name = row[1] ? row[1].toString().trim() : '';
+      salutation = row[2] ? row[2].toString().trim() : '';
+      greetings = row ? row.toString().trim() : '';
       
       console.log(`GREETING: Row ${i+1}: Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
       
@@ -194,7 +209,7 @@ async function getUserGreeting(phoneNumber) {
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetContact) {
           console.log(`GREETING: MATCH FOUND! ${phoneVar} === ${sheetContact}`);
-          console.log(`GREETING: Returning greeting for ${name}`);
+          console.log(`GREETING: Returning greeting for ${name}: "${salutation}" + "${greetings}"`);
           return { name, salutation, greetings };
         }
       }
@@ -221,7 +236,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return formatted;
 }
 
-// CORRECTED: Enhanced Smart Stock Search - Extract ONLY Quality Code (Col A) and Stock (Col E)
+// FIXED: Enhanced Smart Stock Search with proper error handling
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -259,41 +274,50 @@ async function searchStockWithPartialMatch(searchTerms) {
           const row = rows[i];
           if (!row[0]) continue;
           
-          // CORRECTED: Extract ONLY Quality Code from Column A (not the whole row)
+          // FIXED: Extract ONLY Quality Code from Column A with proper error handling
           let qualityCode = '';
-          if (row) {
+          if (row[0] !== null && row !== undefined) {
             const rawQuality = row.toString().trim();
-            // If Quality Code contains commas, take only the first part (before first comma)
+            
+            // If Quality Code contains commas, take only the first part
             if (rawQuality.includes(',')) {
-              qualityCode = rawQuality.split(',').trim();
+              const qualityParts = rawQuality.split(',');
+              // FIXED: Ensure we get a string and trim it
+              qualityCode = qualityParts ? qualityParts.toString().trim() : rawQuality;
             } else {
               qualityCode = rawQuality;
             }
           }
           
-          // CORRECTED: Extract ONLY Stock Quantity from Column E
+          // FIXED: Extract ONLY Stock Quantity from Column E with proper error handling
           let stockValue = '0';
-          if (row) {
+          if (row !== null && row !== undefined) {
             const rawStock = row.toString().trim();
+            
             // If stock contains commas, take the last non-empty value
             if (rawStock.includes(',')) {
-              const stockParts = rawStock.split(',').map(part => part.trim()).filter(part => part !== '');
+              const stockParts = rawStock.split(',')
+                .map(part => part.toString().trim())
+                .filter(part => part !== '' && part !== null && part !== undefined);
               stockValue = stockParts.length > 0 ? stockParts[stockParts.length - 1] : '0';
             } else {
-              stockValue = rawStock;
+              stockValue = rawStock || '0';
             }
           }
           
-          console.log(`STOCK: Quality="${qualityCode}" (from raw: "${row}"), Stock="${stockValue}" (from raw: "${row}")`);
+          // Only log successful parsing
+          if (qualityCode && qualityCode !== '') {
+            console.log(`STOCK: "${qualityCode}" -> Stock: "${stockValue}"`);
+          }
           
           searchTerms.forEach(searchTerm => {
             const cleanSearchTerm = searchTerm.trim();
             
-            if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
+            if (cleanSearchTerm.length >= 5 && qualityCode && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
               
               results[searchTerm].push({
-                qualityCode: qualityCode,    // ONLY Quality Code (Column A first part)
-                stock: stockValue,           // ONLY Stock Value (Column E last part)
+                qualityCode: qualityCode,    // ONLY Quality Code
+                stock: stockValue,           // ONLY Stock Value
                 store: file.name,
                 searchTerm: cleanSearchTerm
               });
@@ -314,7 +338,7 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// CORRECTED: Generate PDF with proper format - Store Name header, then Quality Code | Stock Quantity table
+// Generate PDF with proper format
 async function generateStockPDF(searchResults, searchTerms, phoneNumber, permittedStores) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -368,15 +392,15 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
           allStoreGroups[result.store] = [];
         }
         allStoreGroups[result.store].push({
-          qualityCode: result.qualityCode,  // ONLY Quality Code
-          stock: result.stock               // ONLY Stock Value
+          qualityCode: result.qualityCode,
+          stock: result.stock
         });
       });
     });
 
     // Display results by store
     Object.entries(allStoreGroups).forEach(([storeName, items]) => {
-      // Store Name Header (like "TT Stock")
+      // Store Name Header
       doc.fontSize(16)
          .font('Helvetica-Bold')
          .text(storeName);
@@ -397,7 +421,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
          .stroke();
       doc.moveDown(0.3);
       
-      // Items for this store - ONLY Quality Code and Stock Quantity
+      // Items for this store
       doc.fontSize(10)
          .font('Helvetica');
       
@@ -410,7 +434,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
       doc.moveDown(0.5);
     });
 
-    // CORRECTED: Add Order Forms section to PDF
+    // Add Order Forms section to PDF
     if (permittedStores.length > 0) {
       doc.fontSize(14)
          .font('Helvetica-Bold')
@@ -551,7 +575,7 @@ async function getUserPermittedStores(phoneNumber) {
       // Handle different formats
       if (columnAValue.includes(',')) {
         const parts = columnAValue.split(',').map(part => part.trim());
-        sheetContact = parts;
+        sheetContact = parts[0];
         sheetStore = parts.length > 1 ? parts[1] : columnBValue;
       } else {
         sheetContact = columnAValue;
@@ -577,7 +601,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// CORRECTED: Smart Stock Query with greetings, proper formatting, and order forms in PDF
+// Smart Stock Query with all fixes
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     
@@ -650,11 +674,11 @@ Type /menu for main menu`;
         });
       });
       
-      // Display by store - CORRECTED: Only show Quality Code and Stock
+      // Display by store - Only show Quality Code and Stock
       Object.entries(storeGroups).forEach(([store, items]) => {
         responseMessage += `*${store}*\n`;
         items.forEach(item => {
-          responseMessage += `${item.qualityCode}: ${item.stock}\n`;  // ONLY Quality and Stock
+          responseMessage += `${item.qualityCode}: ${item.stock}\n`;
         });
         responseMessage += `\n`;
       });
@@ -750,7 +774,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // CORRECTED: Main menu with proper greeting
+  // Main menu with proper greeting
   if (lowerMessage === '/menu' || trimmedMessage === '/') {
     console.log('MAIN MENU: Getting greeting for', from);
     userStates[from] = { currentMenu: 'main' };
@@ -780,7 +804,7 @@ Type the number or use shortcuts`;
     return res.sendStatus(200);
   }
 
-  // CORRECTED: Direct Stock Query shortcut with proper greeting
+  // Direct Stock Query shortcut with proper greeting
   if (lowerMessage === '/stock') {
     console.log('STOCK: Getting greeting for', from);
     userStates[from] = { currentMenu: 'smart_stock_query' };
@@ -992,7 +1016,7 @@ Type your search terms below:`;
   return res.sendStatus(200);
 });
 
-// Remaining functions (processOrderQuery, etc.)
+// Remaining functions
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
   try {
     await sendWhatsAppMessage(from, `*Checking ${category} orders...*\n\nPlease wait while I search for your order status.`, productId, phoneId);
@@ -1037,12 +1061,12 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ COMPLETELY CORRECTED VERSION:');
-  console.log('✅ Greetings: Col A=Contact, Col B=Name, Col C=Salutation, Col D=Greetings');
-  console.log('✅ Stock parsing: ONLY Quality Code (Col A first part) and Stock (Col E last part)');
-  console.log('✅ PDF format: Store Name header + Quality Code | Stock Quantity table');
+  console.log('✅ FINAL CORRECTED VERSION:');
+  console.log('✅ Greetings: Fixed column reading for 919088058655');
+  console.log('✅ Stock parsing: Fixed .trim() error with proper type checking');
+  console.log('✅ PDF format: Store Name + Quality Code | Stock Quantity');
   console.log('✅ Order forms included in PDF results');
-  console.log('✅ WhatsApp results also show only Quality Code and Stock');
+  console.log('✅ WhatsApp results show only Quality Code and Stock');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
   console.log('Debug: /debuggreet - Test greeting for your number');
 });
