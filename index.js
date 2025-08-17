@@ -116,6 +116,48 @@ async function getGoogleAuth() {
   }
 }
 
+// HELPER FUNCTION: Format date for display (NEW)
+function formatDateForDisplay(rawDate) {
+  if (!rawDate || rawDate === '') {
+    return 'Date not available';
+  }
+  
+  const dateStr = rawDate.toString().trim();
+  
+  // If it's already in a readable format, return as-is
+  if (dateStr.includes('/') || dateStr.includes('-') || dateStr.includes(' ')) {
+    return dateStr;
+  }
+  
+  // If it's a number (Excel serial date), try to convert
+  const dateNum = parseFloat(dateStr);
+  if (!isNaN(dateNum) && dateNum > 1000) {
+    try {
+      // Excel serial date starts from 1900-01-01, but JavaScript Date starts from 1970-01-01
+      // Excel serial date 1 = 1900-01-01, but Excel incorrectly treats 1900 as a leap year
+      // So we adjust: (dateNum - 25569) converts to Unix timestamp in days, then * 86400000 for milliseconds
+      const jsDate = new Date((dateNum - 25569) * 86400 * 1000);
+      
+      // Check if the conversion resulted in a valid date
+      if (!isNaN(jsDate.getTime())) {
+        return jsDate.toLocaleString('en-IN', { 
+          timeZone: 'Asia/Kolkata',
+          year: 'numeric',
+          month: '2-digit', 
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+    } catch (error) {
+      // If conversion fails, return original
+    }
+  }
+  
+  // If all else fails, return the original value as string
+  return dateStr;
+}
+
 // Get user permissions from BOT Permission sheet
 async function getUserPermissions(phoneNumber) {
   try {
@@ -764,7 +806,7 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// FIXED: Check production stages - Handle missing cells properly
+// FIXED: Check production stages - ONLY CHANGED DATE FORMATTING
 function checkProductionStages(row) {
   try {
     let lastCompletedStage = null;
@@ -792,12 +834,15 @@ function checkProductionStages(row) {
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
       
-      let dispatchDate = 'Date not available';
+      let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
-        dispatchDate = row[dispatchDateIndex].toString().trim();
+        rawDispatchDate = row[dispatchDateIndex];
       }
       
-      return { message: `Order has been dispatched from HO on ${dispatchDate}` };
+      // ONLY CHANGE: Use new date formatting function
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
     if (lastCompletedStage) {
@@ -814,7 +859,7 @@ function checkProductionStages(row) {
   }
 }
 
-// FIXED: Search in live sheet with enhanced debugging
+// Search in live sheet with enhanced debugging
 async function searchInLiveSheet(sheets, orderNumber) {
   try {
     console.log(`=== SEARCHING FOR ORDER: ${orderNumber} ===`);
@@ -837,17 +882,14 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row || row.length === 0) continue;
       
-      // Column D is index 3 - order number column
       let sheetOrderNumber = '';
       if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
         sheetOrderNumber = row[3].toString().trim();
       }
       
-      // Debug every row that has an order number
       if (sheetOrderNumber) {
         console.log(`Row ${i}: Found order "${sheetOrderNumber}" (length: ${sheetOrderNumber.length})`);
         
-        // Check for exact match
         const searchOrder = orderNumber.trim().toUpperCase();
         const sheetOrder = sheetOrderNumber.toUpperCase();
         
@@ -874,7 +916,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
   }
 }
 
-// FIXED: Search in completed orders with enhanced error handling
+// FIXED: Search in completed orders - ONLY CHANGED DATE FORMATTING
 async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
   try {
     const response = await sheets.spreadsheets.values.get({
@@ -892,7 +934,6 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row || row.length === 0) continue;
       
-      // Column D is index 3 - order number column
       let sheetOrderNumber = '';
       if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
         sheetOrderNumber = row[3].toString().trim();
@@ -901,15 +942,18 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       if (!sheetOrderNumber) continue;
 
       if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
-        // Dispatch date is in Column CH (index 86)
-        let dispatchDate = 'Date not available';
-        if (row.length > 86 && row[86] !== undefined && row[86] !== null) {
-          dispatchDate = row.toString().trim();
+        // ONLY CHANGE: Get raw date value and format it properly
+        let rawDispatchDate = '';
+        if (row.length > 86 && row !== undefined && row !== null) {
+          rawDispatchDate = row;
         }
+        
+        // ONLY CHANGE: Use new date formatting function
+        const formattedDate = formatDateForDisplay(rawDispatchDate);
         
         return {
           found: true,
-          message: `Order got dispatched on ${dispatchDate}`,
+          message: `Order got dispatched on ${formattedDate}`,
           location: 'Completed Orders'
         };
       }
@@ -931,13 +975,11 @@ async function searchOrderStatus(orderNumber, category) {
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
 
-    // First search in live sheet
     const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
     if (liveSheetResult.found) {
       return liveSheetResult;
     }
 
-    // Then search in completed orders folder
     const folderFiles = await drive.files.list({
       q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -1034,7 +1076,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // NEW: Debug order command
+  // Debug order command
   if (lowerMessage.startsWith('/debugorder ')) {
     const testOrderNumber = trimmedMessage.replace('/debugorder ', '').trim();
     
@@ -1060,7 +1102,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // NEW: Debug rows command
+  // Debug rows command
   if (lowerMessage === '/debugrows') {
     try {
       const auth = await getGoogleAuth();
@@ -1314,8 +1356,8 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Complete bot with fixed order search functionality');
-  console.log('✅ Fine-grained access control via BOT Permission sheet');
-  console.log('✅ Enhanced debugging for order search issues');
+  console.log('✅ Complete bot with FIXED date display functionality');
+  console.log('✅ Date formatting: Serial numbers converted, text dates passed as-is');
+  console.log('✅ All other functions remain completely intact');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder ORDER_NUMBER, /debugrows');
 });
