@@ -26,7 +26,7 @@ app.get('/download/:filename', (req, res) => {
             try {
               fs.unlinkSync(filepath);
             } catch (cleanupErr) {
-              // Silent cleanup - no logging needed
+              // Silent cleanup
             }
           }, 300000);
         }
@@ -115,7 +115,7 @@ async function getGoogleAuth() {
   }
 }
 
-// Get user greeting from separate columns
+// FIXED: Get user greeting from separate columns (NO STRING MANIPULATION)
 async function getUserGreeting(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
@@ -164,10 +164,11 @@ async function getUserGreeting(phoneNumber) {
       const row = rows[i];
       if (!row || row.length < 4) continue;
       
-      const sheetContact = row[0] ? row.toString().trim() : '';
-      const name = row ? row.toString().trim() : '';
-      const salutation = row ? row.toString().trim() : '';
-      const greetings = row ? row.toString().trim() : '';
+      // CORRECTED: Access each column directly as array elements
+      const sheetContact = (row[0] || '').toString().trim();  // Column A
+      const name = (row[1] || '').toString().trim();          // Column B  
+      const salutation = (row[2] || '').toString().trim();    // Column C
+      const greetings = (row[3] || '').toString().trim();     // Column D
       
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetContact) {
@@ -193,7 +194,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// Handle separate columns for stock data
+// FIXED: Handle separate columns for stock data (NO STRING MANIPULATION)
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -228,17 +229,19 @@ async function searchStockWithPartialMatch(searchTerms) {
           const row = rows[i];
           if (!row || row.length < 5) continue;
           
-          const colA = row[0] ? row.toString().trim() : '';
-          const colE = row ? row.toString().trim() : '';
+          // CORRECTED: Access columns directly as array elements (NO STRING OPERATIONS)
+          const qualityCode = (row[0] || '').toString().trim();  // Column A
+          const stockQuantity = (row[4] || '').toString().trim(); // Column E
           
-          if (colA && colE && colA !== '' && colE !== '') {
+          // Only process if we have both quality code and stock
+          if (qualityCode && stockQuantity && qualityCode !== '' && stockQuantity !== '') {
             searchTerms.forEach(searchTerm => {
               const cleanSearchTerm = searchTerm.trim();
               
-              if (cleanSearchTerm.length >= 5 && colA.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
+              if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
                 results[searchTerm].push({
-                  qualityCode: colA,
-                  stock: colE,
+                  qualityCode: qualityCode,        // Clean single value
+                  stock: stockQuantity,            // Clean single value  
                   store: file.name,
                   searchTerm: cleanSearchTerm
                 });
@@ -423,7 +426,7 @@ Type /menu for main menu`;
   }
 }
 
-// Get user permitted stores from separate columns
+// FIXED: Get user permitted stores from separate columns (NO STRING MANIPULATION)
 async function getUserPermittedStores(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
@@ -456,8 +459,9 @@ async function getUserPermittedStores(phoneNumber) {
       const row = rows[i];
       if (!row || row.length < 2) continue;
       
-      const sheetContact = row[0] ? row[0].toString().trim() : '';
-      const sheetStore = row ? row.toString().trim() : '';
+      // CORRECTED: Access columns directly as array elements  
+      const sheetContact = (row[0] || '').toString().trim();  // Column A
+      const sheetStore = (row[1] || '').toString().trim();    // Column B
       
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetContact) {
@@ -549,10 +553,11 @@ Type /menu for main menu`;
         });
       });
       
-      // Display by store - CLEAN format
+      // CORRECTED: Display clean format (qualityCode: stock - NO COMMAS)
       Object.entries(storeGroups).forEach(([store, items]) => {
         responseMessage += `*${store}*\n`;
         items.forEach(item => {
+          // This should now show: LTS8005: 228.25 (not LTS8005,228.25)
           responseMessage += `${item.qualityCode}: ${item.stock}\n`;
         });
         responseMessage += `\n`;
@@ -1100,5 +1105,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('Logging optimized for Railway deployment');
+  console.log('✅ FIXED: Separate columns properly accessed (no comma concatenation)');
+  console.log('✅ Stock: Column A = Quality Code, Column E = Stock Quantity');
+  console.log('✅ Greetings: Column A = Contact, Column B = Name, Column C = Salutation, Column D = Greetings');  
+  console.log('✅ Store Permissions: Column A = Contact, Column B = Store Name');
+  console.log('✅ Output format: LTS8005: 228.25 (NO comma concatenation)');
 });
