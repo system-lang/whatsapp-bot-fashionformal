@@ -51,7 +51,7 @@ app.get('/download/:filename', (req, res) => {
 // Store user states to track which menu they're in
 let userStates = {};
 
-// NEW: Store order query timestamps for 2-minute window
+// Store order query timestamps for 2-minute window
 let orderQueryTimestamps = {};
 
 // Links for different options
@@ -93,6 +93,60 @@ const PRODUCTION_STAGES = [
   { name: 'Dispatch (HO)', column: 'CG', nextStage: 'COMPLETED', dispatchDateColumn: 'CH' }
 ];
 
+// NEW: Define valid commands and interactions
+function isValidBotInteraction(message, userState) {
+  const lowerMessage = message.toLowerCase().trim();
+  
+  // Valid commands that should always be processed
+  const validCommands = [
+    '/menu', '/stock', '/shirting', '/jacket', '/trouser', 
+    '/helpticket', '/delegation', '/', 
+    '/debuggreet', '/debugpermissions', '/debugrows'
+  ];
+  
+  // Check for debug commands with parameters
+  if (lowerMessage.startsWith('/debugorder ')) {
+    return true;
+  }
+  
+  // Check for valid commands
+  if (validCommands.includes(lowerMessage)) {
+    return true;
+  }
+  
+  // Check for numbered menu selections (1, 2, 3, 4)
+  if (['1', '2', '3', '4'].includes(message.trim())) {
+    return true;
+  }
+  
+  // If user is in a specific menu state, allow their input
+  if (userState) {
+    switch (userState.currentMenu) {
+      case 'main':
+        // Allow numbered selections in main menu
+        return ['1', '2', '3', '4'].includes(message.trim());
+        
+      case 'order_query':
+        // Allow numbered selections in order query menu
+        return ['1', '2', '3'].includes(message.trim());
+        
+      case 'order_number_input':
+      case 'order_followup':
+        // Allow any text input when expecting order numbers
+        return message.trim().length > 0;
+        
+      case 'smart_stock_query':
+        // Allow any text input when expecting stock search terms
+        return message.trim().length > 0;
+        
+      default:
+        return false;
+    }
+  }
+  
+  return false;
+}
+
 // Google Sheets authentication
 async function getGoogleAuth() {
   try {
@@ -119,7 +173,7 @@ async function getGoogleAuth() {
   }
 }
 
-// HELPER FUNCTION: Format date for display
+// Format date for display
 function formatDateForDisplay(rawDate) {
   if (!rawDate || rawDate === '') {
     return 'Date not available';
@@ -154,7 +208,7 @@ function formatDateForDisplay(rawDate) {
   return dateStr;
 }
 
-// NEW: Format stock quantity - show 15+ if > 15
+// Format stock quantity - show 15+ if > 15
 function formatStockQuantity(stockValue) {
   if (!stockValue || stockValue === '') return stockValue;
   
@@ -166,32 +220,28 @@ function formatStockQuantity(stockValue) {
   return stockValue.toString();
 }
 
-// NEW: Helper function to go back one step
+// Helper function to go back one step
 function goBackOneStep(from) {
   if (!userStates[from]) return false;
   
   const currentMenu = userStates[from].currentMenu;
   
   if (currentMenu === 'order_query') {
-    // Go back to main menu
     userStates[from] = { currentMenu: 'main' };
     return true;
   }
   
   if (currentMenu === 'order_number_input') {
-    // Go back to order query category selection
     userStates[from] = { currentMenu: 'order_query' };
     return true;
   }
   
   if (currentMenu === 'smart_stock_query') {
-    // Go back to main menu
     userStates[from] = { currentMenu: 'main' };
     return true;
   }
   
   if (currentMenu === 'main' || currentMenu === 'completed') {
-    // Already at top level, can't go back
     return false;
   }
   
@@ -254,7 +304,7 @@ async function hasFeatureAccess(phoneNumber, feature) {
   return userPermissions.includes(feature.toLowerCase());
 }
 
-// UPDATED: Generate personalized menu with new shortcuts
+// Generate personalized menu with new shortcuts
 async function generatePersonalizedMenu(phoneNumber) {
   const userPermissions = await getUserPermissions(phoneNumber);
   
@@ -275,7 +325,6 @@ Please contact administrator for access.`;
   if (hasAnyTicketAccess) {
     menuItems.push('1. Ticket');
     
-    // NEW: Add individual ticket shortcuts
     if (userPermissions.includes('help_ticket')) {
       shortcuts.push('/helpticket - Direct Help Ticket');
     }
@@ -436,7 +485,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// UPDATED: Handle separate columns for stock data with duplicate removal and max quantity selection
+// Handle separate columns for stock data with duplicate removal and max quantity selection
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -495,7 +544,7 @@ async function searchStockWithPartialMatch(searchTerms) {
       }
     }
 
-    // NEW: Remove duplicates and keep maximum stock quantity for each quality code
+    // Remove duplicates and keep maximum stock quantity for each quality code
     searchTerms.forEach(term => {
       if (results[term] && results[term].length > 0) {
         const qualityCodeMap = {};
@@ -509,7 +558,6 @@ async function searchStockWithPartialMatch(searchTerms) {
           }
         });
         
-        // Convert back to array with unique items (max stock only)
         results[term] = Object.values(qualityCodeMap);
       }
     });
@@ -574,7 +622,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
         }
         allStoreGroups[result.store].push({
           qualityCode: result.qualityCode,
-          stock: formatStockQuantity(result.stock) // NEW: Format stock quantity in PDF too
+          stock: formatStockQuantity(result.stock)
         });
       });
     });
@@ -731,7 +779,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// UPDATED: Smart Stock Query with formatted stock quantities
+// Smart Stock Query with formatted stock quantities
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     const validTerms = searchTerms.filter(term => {
@@ -801,7 +849,6 @@ Type /menu for main menu or / to go back`;
       Object.entries(storeGroups).forEach(([store, items]) => {
         responseMessage += `*${store}*\n`;
         items.forEach(item => {
-          // NEW: Format stock quantity (15+ if > 15)
           const formattedStock = formatStockQuantity(item.stock);
           responseMessage += `${item.qualityCode}: ${formattedStock}\n`;
         });
@@ -1011,7 +1058,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
 
       if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
         let rawDispatchDate = '';
-        if (row.length > 86 && row[86] !== undefined && row !== null) {
+        if (row.length > 86 && row !== undefined && row !== null) {
           rawDispatchDate = row;
         }
         
@@ -1076,18 +1123,18 @@ async function searchOrderStatus(orderNumber, category) {
   }
 }
 
-// NEW: Check if user is within 2-minute order query window
+// Check if user is within 2-minute order query window
 function isWithinOrderQueryWindow(from) {
   if (!orderQueryTimestamps[from]) return false;
   
   const now = Date.now();
   const lastQuery = orderQueryTimestamps[from];
-  const twoMinutes = 2 * 60 * 1000; // 2 minutes in milliseconds
+  const twoMinutes = 2 * 60 * 1000;
   
   return (now - lastQuery) < twoMinutes;
 }
 
-// UPDATED: Process order query with 2-minute window functionality
+// Process order query with 2-minute window functionality
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId, isFollowUp = false) {
   try {
     if (!isFollowUp) {
@@ -1105,7 +1152,6 @@ Please wait while I search for your order status.`, productId, phoneId);
       responseMessage += `${orderStatus.message}\n\n`;
     }
     
-    // NEW: Set timestamp and offer 2-minute window for additional queries
     orderQueryTimestamps[from] = Date.now();
     
     responseMessage += `You can query additional ${category} orders within the next 2 minutes by simply typing the order numbers.\n\n`;
@@ -1113,7 +1159,6 @@ Please wait while I search for your order status.`, productId, phoneId);
     
     await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
     
-    // NEW: Set state to allow follow-up queries
     userStates[from] = { 
       currentMenu: 'order_followup', 
       category: category,
@@ -1126,7 +1171,7 @@ Please wait while I search for your order status.`, productId, phoneId);
   }
 }
 
-// UPDATED: Main webhook handler with all new features
+// MAIN WEBHOOK HANDLER - WITH MESSAGE FILTERING
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -1139,6 +1184,12 @@ app.post('/webhook', async (req, res) => {
 
   const trimmedMessage = message.trim();
   if (trimmedMessage === '') {
+    return res.sendStatus(200);
+  }
+
+  // NEW: Check if this is a valid bot interaction
+  if (!isValidBotInteraction(trimmedMessage, userStates[from])) {
+    // IGNORE: Don't respond to random messages like "Hi", "Hello", etc.
     return res.sendStatus(200);
   }
 
@@ -1219,11 +1270,10 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // NEW: Handle single "/" for going back one step
+  // Handle single "/" for going back one step
   if (trimmedMessage === '/') {
     const wentBack = goBackOneStep(from);
     if (wentBack) {
-      // Regenerate appropriate menu based on new state
       if (userStates[from] && userStates[from].currentMenu === 'main') {
         const greeting = await getUserGreeting(from);
         const personalizedMenu = await generatePersonalizedMenu(from);
@@ -1248,7 +1298,7 @@ Type the number to continue or / to go back`;
     return res.sendStatus(200);
   }
 
-  // Main menu - CHANGED: Only /menu, not /
+  // Main menu - Only /menu, not /
   if (lowerMessage === '/menu') {
     userStates[from] = { currentMenu: 'main' };
     
@@ -1260,7 +1310,7 @@ Type the number to continue or / to go back`;
     return res.sendStatus(200);
   }
 
-  // NEW: Direct ticket shortcuts
+  // Direct ticket shortcuts
   if (lowerMessage === '/helpticket') {
     if (!(await hasFeatureAccess(from, 'help_ticket'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Help Ticket.\nContact administrator for access.`, productId, phoneId);
@@ -1361,10 +1411,9 @@ Type your order numbers below or / to go back:`;
     return res.sendStatus(200);
   }
 
-  // NEW: Handle order follow-up queries within 2-minute window
+  // Handle order follow-up queries within 2-minute window
   if (userStates[from] && userStates[from].currentMenu === 'order_followup') {
     if (isWithinOrderQueryWindow(from) && trimmedMessage !== '/menu' && trimmedMessage !== '/') {
-      // User is entering additional order numbers within 2-minute window
       const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
       
       if (orderNumbers.length > 0) {
@@ -1372,7 +1421,6 @@ Type your order numbers below or / to go back:`;
         return res.sendStatus(200);
       }
     } else {
-      // Window expired or user wants to go back
       userStates[from] = { currentMenu: 'main' };
     }
   }
@@ -1524,12 +1572,9 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Enhanced bot with all requested features:');
-  console.log('✅ NEW: /helpticket and /delegation shortcuts');
-  console.log('✅ NEW: Duplicate stock removal (shows max quantity only)');
-  console.log('✅ NEW: Stock quantities >15 show as 15+');
-  console.log('✅ NEW: 2-minute window for additional order queries');
-  console.log('✅ CHANGED: /menu only (not /), / now goes back one step');
+  console.log('✅ FIXED: Bot now ignores random messages like "Hi", "Hello"');
+  console.log('✅ Bot only responds to valid commands and menu interactions');
   console.log('✅ All existing functions remain intact');
+  console.log('Valid commands: /menu, /stock, /shirting, /jacket, /trouser, /helpticket, /delegation, /');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
 });
