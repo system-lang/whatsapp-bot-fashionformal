@@ -65,6 +65,8 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
+// UPDATED: Using your BOT Permission sheet
+const USER_ACCESS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 
 // Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
@@ -115,7 +117,161 @@ async function getGoogleAuth() {
   }
 }
 
-// FIXED: Get user greeting from separate columns (NO STRING MANIPULATION)
+// UPDATED: Get user permissions from BOT Permission sheet
+async function getUserPermissions(phoneNumber) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Using your sheet name "BOT Permission"
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: USER_ACCESS_SHEET_ID,
+      range: "'BOT Permission'!A:B",
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    const phoneVariations = [
+      phoneNumber,
+      phoneNumber.replace(/^\+91/, ''),
+      phoneNumber.replace(/^\+/, ''),
+      phoneNumber.replace(/^91/, ''),
+      phoneNumber.replace(/^0/, ''),
+      phoneNumber.slice(-10)
+    ];
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length < 2) continue;
+
+      const sheetPhone = (row[0] || '').toString().trim();  // Column A: Contact Number
+      const featuresString = (row[1] || '').toString().trim(); // Column B: Features
+
+      for (const phoneVar of phoneVariations) {
+        if (phoneVar === sheetPhone) {
+          const features = featuresString.split(',').map(f => f.trim().toLowerCase());
+          return features;
+        }
+      }
+    }
+
+    return [];
+
+  } catch (error) {
+    console.error('Error getting user permissions:', error);
+    return [];
+  }
+}
+
+// Check if user has access to specific feature
+async function hasFeatureAccess(phoneNumber, feature) {
+  const userPermissions = await getUserPermissions(phoneNumber);
+  return userPermissions.includes(feature.toLowerCase());
+}
+
+// Generate personalized menu with fine-grained ticket options
+async function generatePersonalizedMenu(phoneNumber) {
+  const userPermissions = await getUserPermissions(phoneNumber);
+  
+  if (userPermissions.length === 0) {
+    return `*ACCESS DENIED*
+
+You do not have permission to use this bot.
+Please contact administrator for access.`;
+  }
+
+  let menuItems = [];
+  let shortcuts = [];
+
+  // Check for any ticket-related permissions
+  const hasAnyTicketAccess = userPermissions.some(perm => 
+    ['help_ticket', 'delegation', 'leave_form'].includes(perm)
+  );
+
+  if (hasAnyTicketAccess) {
+    menuItems.push('1. Ticket');
+  }
+  
+  if (userPermissions.includes('order')) {
+    menuItems.push('2. Order Query');
+    shortcuts.push('/shirting - Shirting Orders');
+    shortcuts.push('/jacket - Jacket Orders');
+    shortcuts.push('/trouser - Trouser Orders');
+  }
+  
+  if (userPermissions.includes('stock')) {
+    menuItems.push('3. Stock Query');
+    shortcuts.push('/stock - Direct Stock Query');
+  }
+  
+  if (userPermissions.includes('document')) {
+    menuItems.push('4. Document');
+  }
+
+  if (menuItems.length === 0) {
+    return `*ACCESS DENIED*
+
+No valid permissions found.
+Please contact administrator for access.`;
+  }
+
+  let menu = `*MAIN MENU*
+
+Please select an option:
+
+${menuItems.join('\n')}`;
+
+  if (shortcuts.length > 0) {
+    menu += `\n\n*SHORTCUTS:*\n${shortcuts.join('\n')}`;
+  }
+
+  menu += `\n\nType the number or use shortcuts`;
+
+  return menu;
+}
+
+// Generate personalized ticket menu based on specific permissions
+async function generateTicketMenu(phoneNumber) {
+  const userPermissions = await getUserPermissions(phoneNumber);
+  
+  let ticketOptions = [];
+  
+  if (userPermissions.includes('help_ticket')) {
+    ticketOptions.push(`*HELP TICKET*\n${links.helpTicket}`);
+  }
+  
+  if (userPermissions.includes('delegation')) {
+    ticketOptions.push(`*DELEGATION*\n${links.delegation}`);
+  }
+  
+  if (userPermissions.includes('leave_form')) {
+    ticketOptions.push(`*LEAVE FORM*\n${links.leave}`);
+  }
+
+  if (ticketOptions.length === 0) {
+    return `*ACCESS DENIED*
+
+You don't have permission to access any ticket options.
+Contact administrator for access.
+
+Type /menu to return to main menu`;
+  }
+
+  return `*TICKET OPTIONS*
+
+Click the links below to access forms directly:
+
+${ticketOptions.join('\n\n')}
+
+Type /menu to return to main menu`;
+}
+
+// Get user greeting from separate columns
 async function getUserGreeting(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
@@ -164,11 +320,10 @@ async function getUserGreeting(phoneNumber) {
       const row = rows[i];
       if (!row || row.length < 4) continue;
       
-      // CORRECTED: Access each column directly as array elements
-      const sheetContact = (row[0] || '').toString().trim();  // Column A
-      const name = (row[1] || '').toString().trim();          // Column B  
-      const salutation = (row[2] || '').toString().trim();    // Column C
-      const greetings = (row[3] || '').toString().trim();     // Column D
+      const sheetContact = (row[0] || '').toString().trim();
+      const name = (row[1] || '').toString().trim();
+      const salutation = (row[2] || '').toString().trim();
+      const greetings = (row[3] || '').toString().trim();
       
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetContact) {
@@ -194,7 +349,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// FIXED: Handle separate columns for stock data (NO STRING MANIPULATION)
+// Handle separate columns for stock data
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -229,19 +384,17 @@ async function searchStockWithPartialMatch(searchTerms) {
           const row = rows[i];
           if (!row || row.length < 5) continue;
           
-          // CORRECTED: Access columns directly as array elements (NO STRING OPERATIONS)
-          const qualityCode = (row[0] || '').toString().trim();  // Column A
-          const stockQuantity = (row[4] || '').toString().trim(); // Column E
+          const qualityCode = (row[0] || '').toString().trim();
+          const stockQuantity = (row[4] || '').toString().trim();
           
-          // Only process if we have both quality code and stock
           if (qualityCode && stockQuantity && qualityCode !== '' && stockQuantity !== '') {
             searchTerms.forEach(searchTerm => {
               const cleanSearchTerm = searchTerm.trim();
               
               if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
                 results[searchTerm].push({
-                  qualityCode: qualityCode,        // Clean single value
-                  stock: stockQuantity,            // Clean single value  
+                  qualityCode: qualityCode,
+                  stock: stockQuantity,
                   store: file.name,
                   searchTerm: cleanSearchTerm
                 });
@@ -304,7 +457,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
 
     let totalResults = 0;
     
-    // Group all results by store
     const allStoreGroups = {};
     
     searchTerms.forEach(term => {
@@ -322,16 +474,13 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
       });
     });
 
-    // Display results by store
     Object.entries(allStoreGroups).forEach(([storeName, items]) => {
-      // Store Name Header
       doc.fontSize(16)
          .font('Helvetica-Bold')
          .text(storeName);
       
       doc.moveDown(0.3);
       
-      // Table Headers
       doc.fontSize(11)
          .font('Helvetica-Bold')
          .text('Quality Code', 50, doc.y, { width: 300, continued: true })
@@ -339,13 +488,11 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
       
       doc.moveDown(0.2);
       
-      // Header line
       doc.moveTo(50, doc.y)
          .lineTo(500, doc.y)
          .stroke();
       doc.moveDown(0.3);
       
-      // Items for this store
       doc.fontSize(10)
          .font('Helvetica');
       
@@ -358,7 +505,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
       doc.moveDown(0.5);
     });
 
-    // Footer
     if (totalResults === 0) {
       doc.fontSize(12)
          .font('Helvetica')
@@ -426,7 +572,7 @@ Type /menu for main menu`;
   }
 }
 
-// FIXED: Get user permitted stores from separate columns (NO STRING MANIPULATION)
+// Get user permitted stores from separate columns
 async function getUserPermittedStores(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
@@ -459,9 +605,8 @@ async function getUserPermittedStores(phoneNumber) {
       const row = rows[i];
       if (!row || row.length < 2) continue;
       
-      // CORRECTED: Access columns directly as array elements  
-      const sheetContact = (row[0] || '').toString().trim();  // Column A
-      const sheetStore = (row[1] || '').toString().trim();    // Column B
+      const sheetContact = (row[0] || '').toString().trim();
+      const sheetStore = (row[1] || '').toString().trim();
       
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetContact) {
@@ -509,11 +654,9 @@ Searching for: ${validTerms.join(', ')}
 
 Please wait while I search all stock sheets...`, productId, phoneId);
 
-    // Perform smart search
     const searchResults = await searchStockWithPartialMatch(validTerms);
     const permittedStores = await getUserPermittedStores(from);
     
-    // Count total results
     let totalResults = 0;
     validTerms.forEach(term => {
       totalResults += (searchResults[term] || []).length;
@@ -536,12 +679,9 @@ Type /menu for main menu`;
       return;
     }
     
-    // Decide: WhatsApp message vs PDF
     if (totalResults <= 15) {
-      // SHORT LIST: Send as WhatsApp message
       let responseMessage = `*Smart Search Results*\n\n`;
       
-      // Group by store for WhatsApp display
       const storeGroups = {};
       validTerms.forEach(term => {
         const termResults = searchResults[term] || [];
@@ -553,17 +693,14 @@ Type /menu for main menu`;
         });
       });
       
-      // CORRECTED: Display clean format (qualityCode: stock - NO COMMAS)
       Object.entries(storeGroups).forEach(([store, items]) => {
         responseMessage += `*${store}*\n`;
         items.forEach(item => {
-          // This should now show: LTS8005: 228.25 (not LTS8005,228.25)
           responseMessage += `${item.qualityCode}: ${item.stock}\n`;
         });
         responseMessage += `\n`;
       });
       
-      // Add order forms
       responseMessage += `*Place Orders*\n\n`;
 
       if (permittedStores.length === 0) {
@@ -585,7 +722,6 @@ Type /menu for main menu`;
       await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
       
     } else {
-      // LONG LIST: Generate PDF
       try {
         const pdfResult = await generateStockPDF(searchResults, validTerms, from, permittedStores);
         
@@ -623,7 +759,7 @@ Type /menu for main menu`, productId, phoneId);
   }
 }
 
-// Main webhook handler
+// Main webhook handler with security checks
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -652,36 +788,36 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // Main menu with greeting
+  // Debug permissions command
+  if (lowerMessage === '/debugpermissions') {
+    const permissions = await getUserPermissions(from);
+    const debugMessage = permissions.length > 0 
+      ? `Your permissions: ${permissions.join(', ')}`
+      : 'No permissions found';
+    
+    await sendWhatsAppMessage(from, `Permission debug result: ${debugMessage}`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Main menu with security check
   if (lowerMessage === '/menu' || trimmedMessage === '/') {
     userStates[from] = { currentMenu: 'main' };
     
     const greeting = await getUserGreeting(from);
+    const personalizedMenu = await generatePersonalizedMenu(from);
     
-    const mainMenu = `*MAIN MENU*
-
-Please select an option:
-
-1. Ticket
-2. Order Query  
-3. Stock Query
-4. Document
-
-*SHORTCUTS:*
-/stock - Direct Stock Query
-/shirting - Shirting Orders
-/jacket - Jacket Orders  
-/trouser - Trouser Orders
-
-Type the number or use shortcuts`;
-    
-    const finalMessage = formatGreetingMessage(greeting, mainMenu);
+    const finalMessage = formatGreetingMessage(greeting, personalizedMenu);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // Direct Stock Query shortcut with greeting
+  // Direct Stock Query shortcut with security check
   if (lowerMessage === '/stock') {
+    if (!(await hasFeatureAccess(from, 'stock'))) {
+      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Stock Query.\nContact administrator for access.`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
     userStates[from] = { currentMenu: 'smart_stock_query' };
     
     const greeting = await getUserGreeting(from);
@@ -707,13 +843,25 @@ Type your search terms below:`;
     return res.sendStatus(200);
   }
 
-  // Order shortcuts with greeting
-  if (lowerMessage === '/shirting') {
-    userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
+  // Order shortcuts with security check
+  if (lowerMessage === '/shirting' || lowerMessage === '/jacket' || lowerMessage === '/trouser') {
+    if (!(await hasFeatureAccess(from, 'order'))) {
+      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    const categoryMap = {
+      '/shirting': 'Shirting',
+      '/jacket': 'Jacket', 
+      '/trouser': 'Trouser'
+    };
+    
+    const category = categoryMap[lowerMessage];
+    userStates[from] = { currentMenu: 'order_number_input', category: category };
     
     const greeting = await getUserGreeting(from);
     
-    const shirtingQuery = `*SHIRTING ORDER QUERY*
+    const orderQuery = `*${category.toUpperCase()} ORDER QUERY*
 
 Please enter your Order Number(s):
 
@@ -722,73 +870,33 @@ Multiple orders: ABC123, DEF456, GHI789
 
 Type your order numbers below:`;
     
-    const finalMessage = formatGreetingMessage(greeting, shirtingQuery);
+    const finalMessage = formatGreetingMessage(greeting, orderQuery);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  if (lowerMessage === '/jacket') {
-    userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
-    
-    const greeting = await getUserGreeting(from);
-    
-    const jacketQuery = `*JACKET ORDER QUERY*
-
-Please enter your Order Number(s):
-
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
-
-Type your order numbers below:`;
-    
-    const finalMessage = formatGreetingMessage(greeting, jacketQuery);
-    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-    return res.sendStatus(200);
-  }
-
-  if (lowerMessage === '/trouser') {
-    userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
-    
-    const greeting = await getUserGreeting(from);
-    
-    const trouserQuery = `*TROUSER ORDER QUERY*
-
-Please enter your Order Number(s):
-
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
-
-Type your order numbers below:`;
-    
-    const finalMessage = formatGreetingMessage(greeting, trouserQuery);
-    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-    return res.sendStatus(200);
-  }
-
-  // Handle menu selections
+  // Handle menu selections with fine-grained security checks
   if (userStates[from] && userStates[from].currentMenu === 'main') {
+    
+    // TICKET OPTION (1) - Check for any ticket permission
     if (trimmedMessage === '1') {
-      const ticketMenu = `*TICKET OPTIONS*
-
-Click the links below to access forms directly:
-
-*HELP TICKET*
-${links.helpTicket}
-
-*LEAVE FORM*
-${links.leave}
-
-*DELEGATION*
-${links.delegation}
-
-Type /menu to return to main menu`;
+      const hasAnyTicketAccess = (await hasFeatureAccess(from, 'help_ticket')) ||
+                                 (await hasFeatureAccess(from, 'delegation')) ||
+                                 (await hasFeatureAccess(from, 'leave_form'));
       
+      if (!hasAnyTicketAccess) {
+        await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Ticket options.\nContact administrator for access.`, productId, phoneId);
+        return res.sendStatus(200);
+      }
+
+      const ticketMenu = await generateTicketMenu(from);
       await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
 
-    if (trimmedMessage === '2') {
+    // ORDER QUERY OPTION (2)
+    if (trimmedMessage === '2' && (await hasFeatureAccess(from, 'order'))) {
       userStates[from].currentMenu = 'order_query';
       const orderQueryMenu = `*ORDER QUERY*
 
@@ -804,7 +912,8 @@ Type the number to continue`;
       return res.sendStatus(200);
     }
 
-    if (trimmedMessage === '3') {
+    // STOCK QUERY OPTION (3)
+    if (trimmedMessage === '3' && (await hasFeatureAccess(from, 'stock'))) {
       userStates[from] = { currentMenu: 'smart_stock_query' };
       
       const greeting = await getUserGreeting(from);
@@ -830,13 +939,15 @@ Type your search terms below:`;
       return res.sendStatus(200);
     }
 
-    if (trimmedMessage === '4') {
+    // DOCUMENT OPTION (4)
+    if (trimmedMessage === '4' && (await hasFeatureAccess(from, 'document'))) {
       await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType /menu to return to main menu', productId, phoneId);
       userStates[from].currentMenu = 'completed';
       return res.sendStatus(200);
     }
 
-    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, 3, or 4.\n\nType /menu to see the main menu again', productId, phoneId);
+    // If user tries to access unauthorized feature
+    await sendWhatsAppMessage(from, '*ACCESS DENIED*\n\nYou don\'t have permission for this option or invalid selection.\n\nType /menu to see your available options.', productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -953,7 +1064,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      const sheetOrderNumber = row[3] ? row[3].toString().trim() : ''; // Column D (index 3)
+      const sheetOrderNumber = row[3] ? row[3].toString().trim() : '';
       if (!sheetOrderNumber) continue;
 
       if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
@@ -989,11 +1100,11 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      const sheetOrderNumber = row[3] ? row[3].toString().trim() : ''; // Column D (index 3)
+      const sheetOrderNumber = row[3] ? row[3].toString().trim() : '';
       if (!sheetOrderNumber) continue;
 
       if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
-        const dispatchDate = row ? row.toString().trim() : 'Date not available'; // Column CH (index 86)
+        const dispatchDate = row[86] ? row[86].toString().trim() : 'Date not available';
         return {
           found: true,
           message: `Order got dispatched on ${dispatchDate}`,
@@ -1018,13 +1129,11 @@ async function searchOrderStatus(orderNumber, category) {
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
 
-    // First search in live sheet
     const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
     if (liveSheetResult.found) {
       return liveSheetResult;
     }
 
-    // Then search in completed orders folder
     const folderFiles = await drive.files.list({
       q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -1105,9 +1214,10 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ FIXED: Separate columns properly accessed (no comma concatenation)');
-  console.log('✅ Stock: Column A = Quality Code, Column E = Stock Quantity');
-  console.log('✅ Greetings: Column A = Contact, Column B = Name, Column C = Salutation, Column D = Greetings');  
-  console.log('✅ Store Permissions: Column A = Contact, Column B = Store Name');
-  console.log('✅ Output format: LTS8005: 228.25 (NO comma concatenation)');
+  console.log('✅ Fine-Grained Access Control implemented');
+  console.log('✅ Using BOT Permission sheet for user access control');
+  console.log('✅ Sub-features: help_ticket, delegation, leave_form, order, stock, document');
+  console.log('✅ Users see only their permitted options');
+  console.log('Debug commands: /debuggreet, /debugpermissions');
+  console.log('Sheet: BOT Permission with columns A (Contact Number) | B (Features)');
 });
