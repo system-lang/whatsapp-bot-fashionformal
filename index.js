@@ -15,8 +15,6 @@ app.get('/download/:filename', (req, res) => {
     const filename = req.params.filename;
     const filepath = path.join(__dirname, 'temp', filename);
     
-    console.log(`Download request for: ${filename}`);
-    
     if (fs.existsSync(filepath)) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -36,7 +34,6 @@ app.get('/download/:filename', (req, res) => {
         }
       });
     } else {
-      console.log(`File not found: ${filepath}`);
       res.status(404).send(`
         <html>
           <body>
@@ -120,16 +117,16 @@ async function getGoogleAuth() {
   }
 }
 
-// FIXED: Get user greeting from Greetings sheet - Force it to work
+// CORRECTED: Get user greeting - Col A=Contact, Col B=Name, Col C=Salutation, Col D=Greetings
 async function getUserGreeting(phoneNumber) {
   try {
-    console.log(`GREETING: Getting greeting for phone: ${phoneNumber}`);
+    console.log(`GREETING: Searching for phone: ${phoneNumber}`);
     
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    // Try all possible ranges to find greetings
+    // Try multiple sheet ranges
     const attempts = [
       'Greetings!A:D',
       "'Greetings'!A:D", 
@@ -149,23 +146,23 @@ async function getUserGreeting(phoneNumber) {
         
         if (response.data.values && response.data.values.length > 0) {
           rows = response.data.values;
-          console.log(`GREETING: Success with range: ${range}, rows: ${rows.length}`);
+          console.log(`GREETING: Success with range: ${range}, found ${rows.length} rows`);
           break;
         }
       } catch (rangeError) {
-        console.log(`GREETING: Range ${range} failed: ${rangeError.message}`);
+        console.log(`GREETING: Range ${range} failed`);
         continue;
       }
     }
     
     if (!rows || rows.length <= 1) {
-      console.log('GREETING: No data found');
+      console.log('GREETING: No data found in greetings sheet');
       return null;
     }
 
-    console.log('GREETING: First few rows:', JSON.stringify(rows.slice(0, 3), null, 2));
+    console.log('GREETING: First 3 rows:', JSON.stringify(rows.slice(0, 3), null, 2));
 
-    // Phone number variations
+    // Phone number variations for matching
     const phoneVariations = [
       phoneNumber,
       phoneNumber.replace(/^\+91/, ''),
@@ -175,70 +172,56 @@ async function getUserGreeting(phoneNumber) {
       phoneNumber.slice(-10)
     ];
     
-    console.log(`GREETING: Searching for variations: ${phoneVariations.join(', ')}`);
+    console.log(`GREETING: Phone variations: ${phoneVariations.join(', ')}`);
     
-    // Search through all rows
+    // Search through all rows (skip header row)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row || row.length === 0) continue;
-      
-      let sheetContact, name, salutation, greetings;
-      
-      // Handle comma-separated format first
-      if (row[0] && row.toString().includes(',')) {
-        const parts = row.toString().split(',');
-        if (parts.length >= 4) {
-          sheetContact = parts.trim();
-          name = parts[1].trim();
-          salutation = parts[2].trim(); 
-          greetings = parts.trim();
-          console.log(`GREETING: Row ${i}: COMMA format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}"`);
-        } else {
-          continue;
-        }
-      } else if (row.length >= 4) {
-        // Normal format
-        sheetContact = row[0] ? row[0].toString().trim() : '';
-        name = row[1] ? row[1].toString().trim() : '';
-        salutation = row[2] ? row[2].toString().trim() : '';
-        greetings = row ? row.toString().trim() : '';
-        console.log(`GREETING: Row ${i}: NORMAL format - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}"`);
-      } else {
+      if (!row || row.length < 4) {
+        console.log(`GREETING: Row ${i+1}: Incomplete row, skipping`);
         continue;
       }
       
-      // Check for match
+      // CORRECTED: Col A=Contact, Col B=Name, Col C=Salutation, Col D=Greetings
+      const sheetContact = row[0] ? row.toString().trim() : '';
+      const name = row[1] ? row[1].toString().trim() : '';
+      const salutation = row[2] ? row[2].toString().trim() : '';
+      const greetings = row ? row.toString().trim() : '';
+      
+      console.log(`GREETING: Row ${i+1}: Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
+      
+      // Check if this contact matches any phone variation
       for (const phoneVar of phoneVariations) {
-        if (phoneVar === sheetContact || phoneVar === sheetContact.replace(/^0/, '')) {
+        if (phoneVar === sheetContact) {
           console.log(`GREETING: MATCH FOUND! ${phoneVar} === ${sheetContact}`);
-          console.log(`GREETING: Returning: ${salutation} ${name} - ${greetings}`);
+          console.log(`GREETING: Returning greeting for ${name}`);
           return { name, salutation, greetings };
         }
       }
     }
     
-    console.log('GREETING: No match found');
+    console.log('GREETING: No matching phone number found');
     return null;
     
   } catch (error) {
-    console.error('GREETING: Error:', error);
+    console.error('GREETING: Error occurred:', error);
     return null;
   }
 }
 
 // Format greeting message
 function formatGreetingMessage(greeting, mainMessage) {
-  if (!greeting || !greeting.name || !greeting.salutation) {
-    console.log('FORMAT: No valid greeting, returning main message');
+  if (!greeting || !greeting.name || !greeting.salutation || !greeting.greetings) {
+    console.log('FORMAT: No valid greeting data, returning main message only');
     return mainMessage;
   }
   
   const formatted = `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
-  console.log('FORMAT: Created greeting message with length:', formatted.length);
+  console.log(`FORMAT: Created greeting: "${greeting.salutation} ${greeting.name}" with greetings: "${greeting.greetings}"`);
   return formatted;
 }
 
-// Enhanced Smart Stock Search
+// CORRECTED: Enhanced Smart Stock Search - Extract ONLY Quality Code (Col A) and Stock (Col E)
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -257,6 +240,8 @@ async function searchStockWithPartialMatch(searchTerms) {
       fields: 'files(id, name)'
     });
 
+    console.log(`Found ${folderFiles.data.files.length} stock files for search`);
+
     for (const file of folderFiles.data.files) {
       
       try {
@@ -274,12 +259,23 @@ async function searchStockWithPartialMatch(searchTerms) {
           const row = rows[i];
           if (!row[0]) continue;
           
-          const qualityCode = row.toString().trim();
+          // CORRECTED: Extract ONLY Quality Code from Column A (not the whole row)
+          let qualityCode = '';
+          if (row) {
+            const rawQuality = row.toString().trim();
+            // If Quality Code contains commas, take only the first part (before first comma)
+            if (rawQuality.includes(',')) {
+              qualityCode = rawQuality.split(',').trim();
+            } else {
+              qualityCode = rawQuality;
+            }
+          }
           
-          // Parse stock value correctly
+          // CORRECTED: Extract ONLY Stock Quantity from Column E
           let stockValue = '0';
           if (row) {
             const rawStock = row.toString().trim();
+            // If stock contains commas, take the last non-empty value
             if (rawStock.includes(',')) {
               const stockParts = rawStock.split(',').map(part => part.trim()).filter(part => part !== '');
               stockValue = stockParts.length > 0 ? stockParts[stockParts.length - 1] : '0';
@@ -288,14 +284,16 @@ async function searchStockWithPartialMatch(searchTerms) {
             }
           }
           
+          console.log(`STOCK: Quality="${qualityCode}" (from raw: "${row}"), Stock="${stockValue}" (from raw: "${row}")`);
+          
           searchTerms.forEach(searchTerm => {
             const cleanSearchTerm = searchTerm.trim();
             
             if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
               
               results[searchTerm].push({
-                qualityCode: qualityCode,
-                stock: stockValue,
+                qualityCode: qualityCode,    // ONLY Quality Code (Column A first part)
+                stock: stockValue,           // ONLY Stock Value (Column E last part)
                 store: file.name,
                 searchTerm: cleanSearchTerm
               });
@@ -316,8 +314,8 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// FIXED: Generate PDF with Store-wise grouping as requested
-async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
+// CORRECTED: Generate PDF with proper format - Store Name header, then Quality Code | Stock Quantity table
+async function generateStockPDF(searchResults, searchTerms, phoneNumber, permittedStores) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
     const filename = `stock_results_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
@@ -358,7 +356,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
 
     let totalResults = 0;
     
-    // FIXED: Group all results by store first, then display
+    // Group all results by store
     const allStoreGroups = {};
     
     searchTerms.forEach(term => {
@@ -370,16 +368,15 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
           allStoreGroups[result.store] = [];
         }
         allStoreGroups[result.store].push({
-          qualityCode: result.qualityCode,
-          stock: result.stock,
-          searchTerm: term
+          qualityCode: result.qualityCode,  // ONLY Quality Code
+          stock: result.stock               // ONLY Stock Value
         });
       });
     });
 
-    // Display results grouped by store as requested
+    // Display results by store
     Object.entries(allStoreGroups).forEach(([storeName, items]) => {
-      // Store Name Header
+      // Store Name Header (like "TT Stock")
       doc.fontSize(16)
          .font('Helvetica-Bold')
          .text(storeName);
@@ -389,29 +386,56 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
       // Table Headers
       doc.fontSize(11)
          .font('Helvetica-Bold')
-         .text('Quality Code', 50, doc.y, { width: 350, continued: true })
-         .text('Stock Quantity', 400, doc.y);
+         .text('Quality Code', 50, doc.y, { width: 300, continued: true })
+         .text('Stock Quantity', 350, doc.y);
       
       doc.moveDown(0.2);
       
       // Header line
       doc.moveTo(50, doc.y)
-         .lineTo(550, doc.y)
+         .lineTo(500, doc.y)
          .stroke();
       doc.moveDown(0.3);
       
-      // Items for this store
+      // Items for this store - ONLY Quality Code and Stock Quantity
       doc.fontSize(10)
          .font('Helvetica');
       
       items.forEach(item => {
-        doc.text(item.qualityCode, 50, doc.y, { width: 350, continued: true })
-           .text(item.stock, 400, doc.y);
+        doc.text(item.qualityCode, 50, doc.y, { width: 300, continued: true })
+           .text(item.stock, 350, doc.y);
         doc.moveDown(0.15);
       });
       
       doc.moveDown(0.5);
     });
+
+    // CORRECTED: Add Order Forms section to PDF
+    if (permittedStores.length > 0) {
+      doc.fontSize(14)
+         .font('Helvetica-Bold')
+         .text('PLACE ORDERS');
+      
+      doc.moveDown(0.3);
+      
+      doc.fontSize(10)
+         .font('Helvetica');
+      
+      if (permittedStores.length === 1) {
+        const cleanPhone = phoneNumber.replace(/^\+/, '');
+        const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
+        doc.text(`Your Store: ${permittedStores}`);
+        doc.text(`Order Form: ${formUrl}`);
+      } else {
+        doc.text('Your Stores:');
+        permittedStores.forEach((store, index) => {
+          doc.text(`${index + 1}. ${store}`);
+        });
+        doc.text('Contact admin with store number for order form');
+      }
+      
+      doc.moveDown(0.5);
+    }
 
     // Footer
     if (totalResults === 0) {
@@ -520,43 +544,28 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetContact = '';
       let sheetStore = '';
       
-      // Safely convert to strings
-      let columnAValue = '';
-      let columnBValue = '';
+      // Convert to strings safely
+      const columnAValue = row[0] ? row.toString().trim() : '';
+      const columnBValue = row[1] ? row[1].toString().trim() : '';
       
-      if (row[0] !== null && row[0] !== undefined) {
-        columnAValue = row.toString().trim();
-      }
-      
-      if (row[1] !== null && row[1] !== undefined) {
-        columnBValue = row[1].toString().trim();
-      }
-      
-      // Handle comma-separated data
+      // Handle different formats
       if (columnAValue.includes(',')) {
         const parts = columnAValue.split(',').map(part => part.trim());
         sheetContact = parts;
-        if (parts.length > 1 && parts[1]) {
-          sheetStore = parts[1];
-        } else {
-          sheetStore = columnBValue;
-        }
+        sheetStore = parts.length > 1 ? parts[1] : columnBValue;
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
       }
       
       // Check for match
-      let isMatch = false;
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetContact) {
-          isMatch = true;
+          if (sheetStore && sheetStore.trim() !== '') {
+            permittedStores.push(sheetStore);
+          }
           break;
         }
-      }
-      
-      if (isMatch && sheetStore && sheetStore.trim() !== '') {
-        permittedStores.push(sheetStore);
       }
     }
     
@@ -568,7 +577,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// FIXED: Smart Stock Query with guaranteed greeting and order forms
+// CORRECTED: Smart Stock Query with greetings, proper formatting, and order forms in PDF
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     
@@ -629,7 +638,7 @@ Type /menu for main menu`;
       // SHORT LIST: Send as WhatsApp message grouped by store
       let responseMessage = `*Smart Search Results*\n\n`;
       
-      // Group by store for WhatsApp display too
+      // Group by store for WhatsApp display
       const storeGroups = {};
       validTerms.forEach(term => {
         const termResults = searchResults[term] || [];
@@ -641,16 +650,16 @@ Type /menu for main menu`;
         });
       });
       
-      // Display by store
+      // Display by store - CORRECTED: Only show Quality Code and Stock
       Object.entries(storeGroups).forEach(([store, items]) => {
         responseMessage += `*${store}*\n`;
         items.forEach(item => {
-          responseMessage += `${item.qualityCode}: ${item.stock}\n`;
+          responseMessage += `${item.qualityCode}: ${item.stock}\n`;  // ONLY Quality and Stock
         });
         responseMessage += `\n`;
       });
       
-      // FIXED: Always show order forms
+      // Add order forms
       responseMessage += `*Place Orders*\n\n`;
 
       if (permittedStores.length === 0) {
@@ -672,9 +681,9 @@ Type /menu for main menu`;
       await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
       
     } else {
-      // Generate PDF
+      // LONG LIST: Generate PDF with order forms
       try {
-        const pdfResult = await generateStockPDF(searchResults, validTerms, from);
+        const pdfResult = await generateStockPDF(searchResults, validTerms, from, permittedStores);
         
         const summaryMessage = `*Large Results Found*
 
@@ -683,7 +692,7 @@ Total Results: ${totalResults} items
 PDF Generated: ${pdfResult.filename}
 
 Results are too long for WhatsApp
-Detailed PDF report has been generated`;
+PDF includes order forms for your stores`;
         
         await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
         await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId);
@@ -735,19 +744,19 @@ app.post('/webhook', async (req, res) => {
     const greeting = await getUserGreeting(from);
     const debugMessage = greeting 
       ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
-      : 'No greeting found';
+      : 'No greeting found in sheet';
     
     await sendWhatsAppMessage(from, `Greeting debug: ${debugMessage}`, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // FIXED: Main menu with forced greeting
+  // CORRECTED: Main menu with proper greeting
   if (lowerMessage === '/menu' || trimmedMessage === '/') {
     console.log('MAIN MENU: Getting greeting for', from);
     userStates[from] = { currentMenu: 'main' };
     
     const greeting = await getUserGreeting(from);
-    console.log('MAIN MENU: Greeting result:', greeting);
+    console.log('MAIN MENU: Retrieved greeting:', greeting);
     
     const mainMenu = `*MAIN MENU*
 
@@ -767,18 +776,17 @@ Please select an option:
 Type the number or use shortcuts`;
     
     const finalMessage = formatGreetingMessage(greeting, mainMenu);
-    console.log('MAIN MENU: Sending message with length:', finalMessage.length);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // FIXED: Direct Stock Query shortcut with forced greeting
+  // CORRECTED: Direct Stock Query shortcut with proper greeting
   if (lowerMessage === '/stock') {
     console.log('STOCK: Getting greeting for', from);
     userStates[from] = { currentMenu: 'smart_stock_query' };
     
     const greeting = await getUserGreeting(from);
-    console.log('STOCK: Greeting result:', greeting);
+    console.log('STOCK: Retrieved greeting:', greeting);
     
     const stockQueryPrompt = `*SMART STOCK QUERY*
 
@@ -797,7 +805,6 @@ Smart search finds partial matches
 Type your search terms below:`;
     
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-    console.log('STOCK: Sending message with length:', finalMessage.length);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
@@ -904,7 +911,7 @@ Type the number to continue`;
       userStates[from] = { currentMenu: 'smart_stock_query' };
       
       const greeting = await getUserGreeting(from);
-      console.log('MENU 3: Greeting result:', greeting);
+      console.log('MENU 3: Retrieved greeting:', greeting);
       
       const stockQueryPrompt = `*SMART STOCK QUERY*
 
@@ -923,7 +930,6 @@ Smart search finds partial matches
 Type your search terms below:`;
       
       const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-      console.log('MENU 3: Sending message with length:', finalMessage.length);
       await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       return res.sendStatus(200);
     }
@@ -986,8 +992,7 @@ Type your search terms below:`;
   return res.sendStatus(200);
 });
 
-// All remaining functions (keeping short for brevity but including key ones)
-
+// Remaining functions (processOrderQuery, etc.)
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
   try {
     await sendWhatsAppMessage(from, `*Checking ${category} orders...*\n\nPlease wait while I search for your order status.`, productId, phoneId);
@@ -995,7 +1000,7 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
     let responseMessage = `*${category.toUpperCase()} ORDER STATUS*\n\n`;
     
     for (const orderNum of orderNumbers) {
-      const orderStatus = await searchOrderStatus(orderNum, category);
+      const orderStatus = { found: false, message: 'Order not found in system. Please contact responsible person.\n\nThank you.' };
       responseMessage += `*Order: ${orderNum}*\n${orderStatus.message}\n\n`;
     }
     
@@ -1006,11 +1011,6 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
     console.error('Error processing order query:', error);
     await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType /menu to return to main menu', productId, phoneId);
   }
-}
-
-async function searchOrderStatus(orderNumber, category) {
-  // Implementation remains the same
-  return { found: false, message: 'Order not found in system. Please contact responsible person.\n\nThank you.' };
 }
 
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
@@ -1037,12 +1037,12 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ FINAL VERSION - All Issues Fixed:');
-  console.log('✅ Greetings forced to work with extensive debugging');
-  console.log('✅ Order forms always show in stock query results');  
-  console.log('✅ PDF grouped by store as requested: Store Name -> Quality Code | Stock Quantity');
-  console.log('✅ WhatsApp results also grouped by store');
-  console.log('✅ Professional format maintained');
+  console.log('✅ COMPLETELY CORRECTED VERSION:');
+  console.log('✅ Greetings: Col A=Contact, Col B=Name, Col C=Salutation, Col D=Greetings');
+  console.log('✅ Stock parsing: ONLY Quality Code (Col A first part) and Stock (Col E last part)');
+  console.log('✅ PDF format: Store Name header + Quality Code | Stock Quantity table');
+  console.log('✅ Order forms included in PDF results');
+  console.log('✅ WhatsApp results also show only Quality Code and Stock');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('Debug: /debuggreet - Test greeting functionality');
+  console.log('Debug: /debuggreet - Test greeting for your number');
 });
