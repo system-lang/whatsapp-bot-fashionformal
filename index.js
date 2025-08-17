@@ -65,7 +65,6 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
-// UPDATED: Using your BOT Permission sheet
 const USER_ACCESS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 
 // Static Google Form configuration
@@ -117,14 +116,13 @@ async function getGoogleAuth() {
   }
 }
 
-// UPDATED: Get user permissions from BOT Permission sheet
+// Get user permissions from BOT Permission sheet
 async function getUserPermissions(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    // Using your sheet name "BOT Permission"
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: USER_ACCESS_SHEET_ID,
       range: "'BOT Permission'!A:B",
@@ -149,8 +147,8 @@ async function getUserPermissions(phoneNumber) {
       const row = rows[i];
       if (!row || row.length < 2) continue;
 
-      const sheetPhone = (row[0] || '').toString().trim();  // Column A: Contact Number
-      const featuresString = (row[1] || '').toString().trim(); // Column B: Features
+      const sheetPhone = (row[0] || '').toString().trim();
+      const featuresString = (row[1] || '').toString().trim();
 
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetPhone) {
@@ -188,7 +186,6 @@ Please contact administrator for access.`;
   let menuItems = [];
   let shortcuts = [];
 
-  // Check for any ticket-related permissions
   const hasAnyTicketAccess = userPermissions.some(perm => 
     ['help_ticket', 'delegation', 'leave_form'].includes(perm)
   );
@@ -436,7 +433,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
     const stream = fs.createWriteStream(filepath);
     doc.pipe(stream);
 
-    // Header
     doc.fontSize(18)
        .font('Helvetica-Bold')
        .text('STOCK QUERY RESULTS', { align: 'center' });
@@ -759,7 +755,246 @@ Type /menu for main menu`, productId, phoneId);
   }
 }
 
-// Main webhook handler with security checks
+// Convert column letter to index (A=0, B=1, etc.)
+function columnToIndex(column) {
+  let index = 0;
+  for (let i = 0; i < column.length; i++) {
+    index = index * 26 + (column.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
+  }
+  return index - 1;
+}
+
+// FIXED: Check production stages - Handle missing cells properly
+function checkProductionStages(row) {
+  try {
+    let lastCompletedStage = null;
+    let hasAnyStage = false;
+
+    for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
+      const stage = PRODUCTION_STAGES[i];
+      const columnIndex = columnToIndex(stage.column);
+      
+      let cellValue = '';
+      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
+        cellValue = row[columnIndex].toString().trim();
+      }
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+        lastCompletedStage = stage;
+        hasAnyStage = true;
+      }
+    }
+
+    if (!hasAnyStage) {
+      return { message: 'Order is currently under process' };
+    }
+
+    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
+      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
+      
+      let dispatchDate = 'Date not available';
+      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
+        dispatchDate = row[dispatchDateIndex].toString().trim();
+      }
+      
+      return { message: `Order has been dispatched from HO on ${dispatchDate}` };
+    }
+
+    if (lastCompletedStage) {
+      return { 
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
+      };
+    }
+
+    return { message: 'Error determining order status' };
+
+  } catch (error) {
+    console.error('Error checking production stages:', error);
+    return { message: 'Error checking order status' };
+  }
+}
+
+// FIXED: Search in live sheet with enhanced debugging
+async function searchInLiveSheet(sheets, orderNumber) {
+  try {
+    console.log(`=== SEARCHING FOR ORDER: ${orderNumber} ===`);
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: LIVE_SHEET_ID,
+      range: `${LIVE_SHEET_NAME}!A:CH`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('ERROR: No rows returned from live sheet');
+      return { found: false };
+    }
+
+    console.log(`Live sheet has ${rows.length} total rows`);
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      // Column D is index 3 - order number column
+      let sheetOrderNumber = '';
+      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+        sheetOrderNumber = row[3].toString().trim();
+      }
+      
+      // Debug every row that has an order number
+      if (sheetOrderNumber) {
+        console.log(`Row ${i}: Found order "${sheetOrderNumber}" (length: ${sheetOrderNumber.length})`);
+        
+        // Check for exact match
+        const searchOrder = orderNumber.trim().toUpperCase();
+        const sheetOrder = sheetOrderNumber.toUpperCase();
+        
+        console.log(`Comparing: "${searchOrder}" === "${sheetOrder}"`);
+        
+        if (sheetOrder === searchOrder) {
+          console.log(`✅ EXACT MATCH FOUND at row ${i}`);
+          const stageStatus = checkProductionStages(row);
+          return {
+            found: true,
+            message: stageStatus.message,
+            location: 'Live Sheet (FMS)'
+          };
+        }
+      }
+    }
+
+    console.log(`❌ Order ${orderNumber} not found in any of the ${rows.length} rows`);
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching live sheet:', error.message);
+    return { found: false };
+  }
+}
+
+// FIXED: Search in completed orders with enhanced error handling
+async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'A:CH',
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return { found: false };
+    }
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      // Column D is index 3 - order number column
+      let sheetOrderNumber = '';
+      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+        sheetOrderNumber = row[3].toString().trim();
+      }
+      
+      if (!sheetOrderNumber) continue;
+
+      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
+        // Dispatch date is in Column CH (index 86)
+        let dispatchDate = 'Date not available';
+        if (row.length > 86 && row[86] !== undefined && row[86] !== null) {
+          dispatchDate = row.toString().trim();
+        }
+        
+        return {
+          found: true,
+          message: `Order got dispatched on ${dispatchDate}`,
+          location: 'Completed Orders'
+        };
+      }
+    }
+
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching completed sheet:', error);
+    return { found: false };
+  }
+}
+
+// Main order search function
+async function searchOrderStatus(orderNumber, category) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    // First search in live sheet
+    const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
+    if (liveSheetResult.found) {
+      return liveSheetResult;
+    }
+
+    // Then search in completed orders folder
+    const folderFiles = await drive.files.list({
+      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const completedResult = await searchInCompletedSheetSimplified(sheets, file.id, orderNumber);
+        if (completedResult.found) {
+          return completedResult;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return { 
+      found: false, 
+      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
+    };
+
+  } catch (error) {
+    console.error('Error in searchOrderStatus:', error);
+    return { 
+      found: false, 
+      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
+    };
+  }
+}
+
+// Process order query
+async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
+  try {
+    await sendWhatsAppMessage(from, `*Checking ${category} orders...*
+
+Please wait while I search for your order status.`, productId, phoneId);
+
+    let responseMessage = `*${category.toUpperCase()} ORDER STATUS*\n\n`;
+    
+    for (const orderNum of orderNumbers) {
+      const orderStatus = await searchOrderStatus(orderNum, category);
+      
+      responseMessage += `*Order: ${orderNum}*\n`;
+      responseMessage += `${orderStatus.message}\n\n`;
+    }
+    
+    responseMessage += `Type /menu to return to main menu`;
+    
+    await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+    
+  } catch (error) {
+    console.error('Error processing order query:', error);
+    await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType /menu to return to main menu', productId, phoneId);
+  }
+}
+
+// Main webhook handler with security checks and debug commands
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -796,6 +1031,62 @@ app.post('/webhook', async (req, res) => {
       : 'No permissions found';
     
     await sendWhatsAppMessage(from, `Permission debug result: ${debugMessage}`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // NEW: Debug order command
+  if (lowerMessage.startsWith('/debugorder ')) {
+    const testOrderNumber = trimmedMessage.replace('/debugorder ', '').trim();
+    
+    await sendWhatsAppMessage(from, `🔍 Debugging order search for: ${testOrderNumber}`, productId, phoneId);
+    
+    try {
+      const auth = await getGoogleAuth();
+      const authClient = await auth.getClient();
+      const sheets = google.sheets({ version: 'v4', auth: authClient });
+      
+      const result = await searchInLiveSheet(sheets, testOrderNumber);
+      
+      const debugResult = result.found 
+        ? `✅ Order FOUND: ${result.message}`
+        : `❌ Order NOT FOUND in live sheet`;
+        
+      await sendWhatsAppMessage(from, debugResult, productId, phoneId);
+      
+    } catch (error) {
+      await sendWhatsAppMessage(from, `Error during debug: ${error.message}`, productId, phoneId);
+    }
+    
+    return res.sendStatus(200);
+  }
+
+  // NEW: Debug rows command
+  if (lowerMessage === '/debugrows') {
+    try {
+      const auth = await getGoogleAuth();
+      const authClient = await auth.getClient();
+      const sheets = google.sheets({ version: 'v4', auth: authClient });
+      
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: LIVE_SHEET_ID,
+        range: `${LIVE_SHEET_NAME}!A1:E10`,
+        valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+
+      const rows = response.data.values;
+      let debugMessage = `*LIVE SHEET DEBUG*\n\nFirst ${Math.min(10, rows.length)} rows:\n\n`;
+      
+      rows.forEach((row, index) => {
+        const colD = row.length > 3 ? row[3] : 'EMPTY';
+        debugMessage += `Row ${index}: ColD="${colD}"\n`;
+      });
+      
+      await sendWhatsAppMessage(from, debugMessage, productId, phoneId);
+      
+    } catch (error) {
+      await sendWhatsAppMessage(from, `Debug error: ${error.message}`, productId, phoneId);
+    }
+    
     return res.sendStatus(200);
   }
 
@@ -878,7 +1169,7 @@ Type your order numbers below:`;
   // Handle menu selections with fine-grained security checks
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     
-    // TICKET OPTION (1) - Check for any ticket permission
+    // TICKET OPTION (1)
     if (trimmedMessage === '1') {
       const hasAnyTicketAccess = (await hasFeatureAccess(from, 'help_ticket')) ||
                                  (await hasFeatureAccess(from, 'delegation')) ||
@@ -999,197 +1290,6 @@ Type your search terms below:`;
   return res.sendStatus(200);
 });
 
-// Convert column letter to index (A=0, B=1, etc.)
-function columnToIndex(column) {
-  let index = 0;
-  for (let i = 0; i < column.length; i++) {
-    index = index * 26 + (column.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
-  }
-  return index - 1;
-}
-
-// Check production stages
-function checkProductionStages(row) {
-  try {
-    let lastCompletedStage = null;
-    let hasAnyStage = false;
-
-    for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
-      const stage = PRODUCTION_STAGES[i];
-      const columnIndex = columnToIndex(stage.column);
-      const cellValue = row[columnIndex] ? row[columnIndex].toString().trim() : '';
-      
-      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
-        lastCompletedStage = stage;
-        hasAnyStage = true;
-      }
-    }
-
-    if (!hasAnyStage) {
-      return { message: 'Order is currently under process' };
-    }
-
-    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
-      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-      const dispatchDate = row[dispatchDateIndex] ? row[dispatchDateIndex].toString().trim() : 'Date not available';
-      return { message: `Order has been dispatched from HO on ${dispatchDate}` };
-    }
-
-    if (lastCompletedStage) {
-      return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
-      };
-    }
-
-    return { message: 'Error determining order status' };
-
-  } catch (error) {
-    console.error('Error checking production stages:', error);
-    return { message: 'Error checking order status' };
-  }
-}
-
-// Search in live sheet (FMS)
-async function searchInLiveSheet(sheets, orderNumber) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: LIVE_SHEET_ID,
-      range: `${LIVE_SHEET_NAME}!A:CH`,
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return { found: false };
-    }
-
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      const sheetOrderNumber = row[3] ? row[3].toString().trim() : '';
-      if (!sheetOrderNumber) continue;
-
-      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
-        const stageStatus = checkProductionStages(row);
-        return {
-          found: true,
-          message: stageStatus.message,
-          location: 'Live Sheet (FMS)'
-        };
-      }
-    }
-
-    return { found: false };
-
-  } catch (error) {
-    console.error('Error searching live sheet:', error);
-    return { found: false };
-  }
-}
-
-// Search in completed orders
-async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: sheetId,
-      range: 'A:CH',
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return { found: false };
-    }
-
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      const sheetOrderNumber = row[3] ? row[3].toString().trim() : '';
-      if (!sheetOrderNumber) continue;
-
-      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
-        const dispatchDate = row[86] ? row[86].toString().trim() : 'Date not available';
-        return {
-          found: true,
-          message: `Order got dispatched on ${dispatchDate}`,
-          location: 'Completed Orders'
-        };
-      }
-    }
-
-    return { found: false };
-
-  } catch (error) {
-    console.error('Error searching completed sheet:', error);
-    return { found: false };
-  }
-}
-
-// Main order search function
-async function searchOrderStatus(orderNumber, category) {
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const drive = google.drive({ version: 'v3', auth: authClient });
-
-    const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
-    if (liveSheetResult.found) {
-      return liveSheetResult;
-    }
-
-    const folderFiles = await drive.files.list({
-      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name)'
-    });
-
-    for (const file of folderFiles.data.files) {
-      try {
-        const completedResult = await searchInCompletedSheetSimplified(sheets, file.id, orderNumber);
-        if (completedResult.found) {
-          return completedResult;
-        }
-      } catch (error) {
-        continue;
-      }
-    }
-
-    return { 
-      found: false, 
-      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
-    };
-
-  } catch (error) {
-    console.error('Error in searchOrderStatus:', error);
-    return { 
-      found: false, 
-      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
-    };
-  }
-}
-
-// Process order query
-async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
-  try {
-    await sendWhatsAppMessage(from, `*Checking ${category} orders...*
-
-Please wait while I search for your order status.`, productId, phoneId);
-
-    let responseMessage = `*${category.toUpperCase()} ORDER STATUS*\n\n`;
-    
-    for (const orderNum of orderNumbers) {
-      const orderStatus = await searchOrderStatus(orderNum, category);
-      
-      responseMessage += `*Order: ${orderNum}*\n`;
-      responseMessage += `${orderStatus.message}\n\n`;
-    }
-    
-    responseMessage += `Type /menu to return to main menu`;
-    
-    await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
-    
-  } catch (error) {
-    console.error('Error processing order query:', error);
-    await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType /menu to return to main menu', productId, phoneId);
-  }
-}
-
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
     await axios.post(
@@ -1214,10 +1314,8 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ Fine-Grained Access Control implemented');
-  console.log('✅ Using BOT Permission sheet for user access control');
-  console.log('✅ Sub-features: help_ticket, delegation, leave_form, order, stock, document');
-  console.log('✅ Users see only their permitted options');
-  console.log('Debug commands: /debuggreet, /debugpermissions');
-  console.log('Sheet: BOT Permission with columns A (Contact Number) | B (Features)');
+  console.log('✅ Complete bot with fixed order search functionality');
+  console.log('✅ Fine-grained access control via BOT Permission sheet');
+  console.log('✅ Enhanced debugging for order search issues');
+  console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder ORDER_NUMBER, /debugrows');
 });
