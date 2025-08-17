@@ -120,11 +120,9 @@ async function getGoogleAuth() {
   }
 }
 
-// FIXED: Get user greeting from Greetings sheet with better debugging
+// Get user greeting from Greetings sheet
 async function getUserGreeting(phoneNumber) {
   try {
-    console.log(`GREETING DEBUG: Getting greeting for phone: ${phoneNumber}`);
-    
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
@@ -148,7 +146,6 @@ async function getUserGreeting(phoneNumber) {
       
       if (greetingsSheet) {
         const sheetName = greetingsSheet.properties.title;
-        console.log(`GREETING DEBUG: Found greetings sheet: "${sheetName}"`);
         
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: GREETINGS_SHEET_ID,
@@ -157,15 +154,12 @@ async function getUserGreeting(phoneNumber) {
         });
         
         rows = response.data.values;
-        console.log(`GREETING DEBUG: Successfully read ${rows ? rows.length : 0} rows from greetings sheet`);
       }
     } catch (metaError) {
-      console.log('GREETING DEBUG: Metadata approach failed, trying alternative ranges...');
       const attempts = ['Greetings!A:D', "'Greetings'!A:D", 'Sheet2!A:D', 'A:D'];
       
       for (const range of attempts) {
         try {
-          console.log(`GREETING DEBUG: Trying range: ${range}`);
           const response = await sheets.spreadsheets.values.get({
             spreadsheetId: GREETINGS_SHEET_ID,
             range: range,
@@ -174,7 +168,6 @@ async function getUserGreeting(phoneNumber) {
           
           if (response.data.values && response.data.values.length > 0) {
             rows = response.data.values;
-            console.log(`GREETING DEBUG: Successfully accessed greetings with range: ${range}`);
             break;
           }
         } catch (rangeError) {
@@ -184,11 +177,8 @@ async function getUserGreeting(phoneNumber) {
     }
     
     if (!rows || rows.length === 0) {
-      console.log('GREETING DEBUG: No data found in any Greetings sheet attempt');
       return null;
     }
-
-    console.log('GREETING DEBUG: Greetings sheet raw data:', JSON.stringify(rows.slice(0, 3), null, 2));
 
     const phoneVariations = Array.from(new Set([
       phoneNumber,
@@ -200,18 +190,13 @@ async function getUserGreeting(phoneNumber) {
       phoneNumber.slice(-10)
     ])).filter(p => p && p.length >= 10);
     
-    console.log(`GREETING DEBUG: Looking for greeting with phone variations: ${phoneVariations.join(', ')}`);
-    
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row || row.length === 0) {
-        console.log(`GREETING DEBUG: Row ${i + 1}: Skipping empty greeting row`);
-        continue;
-      }
+      if (!row || row.length === 0) continue;
       
       let sheetContact, name, salutation, greetings;
       
-      if (row.length >= 4 && row[1] && row[2] && row[3] && !row.toString().includes(',')) {
+      if (row.length >= 4 && row[1] && row[1] && row && !row.toString().includes(',')) {
         // Normal format
         const contactCell = row;
         if (typeof contactCell === 'number') {
@@ -222,25 +207,21 @@ async function getUserGreeting(phoneNumber) {
         } else {
           sheetContact = contactCell ? contactCell.toString().trim() : '';
         }
-        name = row[11].toString().trim();
-        salutation = row[12].toString().trim(); 
+        name = row[1].toString().trim();
+        salutation = row[1].toString().trim(); 
         greetings = row.toString().trim();
-        console.log(`GREETING DEBUG: Row ${i + 1}: NORMAL - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
       } else if (row && row.toString().includes(',')) {
         // Comma-separated format
         const parts = row.toString().split(',');
         if (parts.length >= 4) {
           sheetContact = parts.trim();
-          name = parts[11].trim();
-          salutation = parts[12].trim(); 
+          name = parts[2].trim();
+          salutation = parts[1].trim(); 
           greetings = parts.trim();
-          console.log(`GREETING DEBUG: Row ${i + 1}: COMMA - Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
         } else {
-          console.log(`GREETING DEBUG: Row ${i + 1}: Insufficient parts: ${JSON.stringify(parts)}`);
           continue;
         }
       } else {
-        console.log(`GREETING DEBUG: Row ${i + 1}: Unrecognized format: ${JSON.stringify(row)}`);
         continue;
       }
       
@@ -258,43 +239,34 @@ async function getUserGreeting(phoneNumber) {
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
         if (sheetContactVariations.includes(phoneVar)) {
-          console.log(`GREETING DEBUG: MATCH found! "${phoneVar}"`);
           isMatch = true;
           break;
         }
       }
       
       if (isMatch) {
-        console.log(`GREETING DEBUG: SUCCESS! Found greeting for ${phoneNumber}: ${salutation} ${name} - ${greetings}`);
         return { name, salutation, greetings };
       }
     }
     
-    console.log(`GREETING DEBUG: No greeting found for ${phoneNumber} after checking all rows`);
     return null;
     
   } catch (error) {
-    console.error('GREETING DEBUG: Error getting user greeting:', error);
+    console.error('Error getting user greeting:', error);
     return null;
   }
 }
 
-// FIXED: Format greeting message with better debugging
+// Format greeting message
 function formatGreetingMessage(greeting, mainMessage) {
-  console.log(`FORMAT DEBUG: Greeting object:`, greeting);
-  console.log(`FORMAT DEBUG: Main message length:`, mainMessage ? mainMessage.length : 'null');
-  
   if (!greeting) {
-    console.log(`FORMAT DEBUG: No greeting found, returning main message only`);
     return mainMessage;
   }
   
-  const formattedMessage = `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
-  console.log(`FORMAT DEBUG: Formatted message:`, formattedMessage.substring(0, 100) + '...');
-  return formattedMessage;
+  return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// FIXED: Enhanced Smart Stock Search with proper column parsing
+// Enhanced Smart Stock Search with proper column parsing
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -313,10 +285,7 @@ async function searchStockWithPartialMatch(searchTerms) {
       fields: 'files(id, name)'
     });
 
-    console.log(`Found ${folderFiles.data.files.length} stock files for smart search`);
-
     for (const file of folderFiles.data.files) {
-      console.log(`Smart searching in: ${file.name}`);
       
       try {
         const response = await sheets.spreadsheets.values.get({
@@ -326,7 +295,6 @@ async function searchStockWithPartialMatch(searchTerms) {
 
         const rows = response.data.values;
         if (!rows || rows.length === 0) {
-          console.log(`No data in ${file.name}`);
           continue;
         }
         
@@ -336,7 +304,7 @@ async function searchStockWithPartialMatch(searchTerms) {
           
           const qualityCode = row.toString().trim();
           
-          // FIXED: Parse stock value correctly - handle comma-separated data
+          // Parse stock value correctly - handle comma-separated data
           let stockValue = '0';
           if (row) {
             const rawStock = row.toString().trim();
@@ -349,13 +317,10 @@ async function searchStockWithPartialMatch(searchTerms) {
             }
           }
           
-          console.log(`STOCK DEBUG: Raw row[4]: "${row}" -> Parsed stock: "${stockValue}"`);
-          
           searchTerms.forEach(searchTerm => {
             const cleanSearchTerm = searchTerm.trim();
             
             if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
-              console.log(`MATCH: "${cleanSearchTerm}" found in "${qualityCode}" - Stock: ${stockValue}`);
               
               results[searchTerm].push({
                 qualityCode: qualityCode,
@@ -380,7 +345,7 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// Generate PDF showing ONLY Quality Code and Stock (Professional Format)
+// Generate PDF showing ONLY Quality Code and Stock
 async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -495,7 +460,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
 // Send file via Railway file serving endpoint
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
   try {
-    console.log(`Preparing download link for: ${filename}`);
     
     const fileStats = fs.statSync(filepath);
     const fileSizeKB = Math.round(fileStats.size / 1024);
@@ -535,10 +499,9 @@ Type /menu for main menu`;
   }
 }
 
-// FIXED: Get user permitted stores with proper store name parsing
+// FIXED: Get user permitted stores - handle number types properly
 async function getUserPermittedStores(phoneNumber) {
   try {
-    console.log(`STORE DEBUG: Getting permitted stores for phone: ${phoneNumber}`);
     
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
@@ -553,12 +516,8 @@ async function getUserPermittedStores(phoneNumber) {
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
-      console.log('STORE DEBUG: No data found in Store Permission sheet');
       return [];
     }
-
-    console.log(`STORE DEBUG: Found ${rows.length} total rows in permission sheet`);
-    console.log('STORE DEBUG: Raw rows data:', JSON.stringify(rows.slice(0, 5), null, 2));
     
     const permittedStores = [];
     
@@ -571,29 +530,46 @@ async function getUserPermittedStores(phoneNumber) {
       phoneNumber.replace(/[\s\-\(\)]/g, ''),
     ];
     
-    console.log(`STORE DEBUG: Trying phone variations: ${phoneVariations.join(', ')}`);
-    
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length < 1) {
-        console.log(`STORE DEBUG: Row ${i + 1}: Skipping incomplete row: ${JSON.stringify(row)}`);
         continue;
       }
       
       let sheetContact = '';
       let sheetStore = '';
       
-      const columnAValue = row[0] ? row.toString().trim() : '';
-      const columnBValue = row[11] ? row[11].toString().trim() : '';
+      // FIXED: Safely convert contact to string first
+      let columnAValue = '';
+      let columnBValue = '';
       
-      // FIXED: Handle different data formats in store permission sheet
+      if (row[0] !== null && row !== undefined) {
+        if (typeof row === 'number') {
+          columnAValue = row.toString();
+          // Handle scientific notation
+          if (columnAValue.includes('e+') || columnAValue.includes('E+')) {
+            columnAValue = row.toFixed(0);
+          }
+        } else {
+          columnAValue = row.toString().trim();
+        }
+      }
+      
+      if (row[2] !== null && row[2] !== undefined) {
+        if (typeof row[2] === 'number') {
+          columnBValue = row[2].toString();
+        } else {
+          columnBValue = row[2].toString().trim();
+        }
+      }
+      
+      // Handle different data formats in store permission sheet
       if (columnAValue.includes(',')) {
-        console.log(`STORE DEBUG: Row ${i + 1}: Detected comma-separated data in Column A: "${columnAValue}"`);
         const parts = columnAValue.split(',').map(part => part.trim());
         sheetContact = parts;
         // Try to find store name in the parts or use column B
-        if (parts.length > 1 && parts[11]) {
-          sheetStore = parts[11];
+        if (parts.length > 1 && parts[2]) {
+          sheetStore = parts[2];
         } else {
           sheetStore = columnBValue;
         }
@@ -602,14 +578,7 @@ async function getUserPermittedStores(phoneNumber) {
         sheetStore = columnBValue;
       }
       
-      // Handle case where contact number is a JavaScript number
-      if (typeof sheetContact === 'number') {
-        sheetContact = sheetContact.toString();
-        if (sheetContact.includes('e+') || sheetContact.includes('E+')) {
-          sheetContact = sheetContact.replace(/e\+\d+/gi, '');
-        }
-      }
-      
+      // FIXED: Now sheetContact is guaranteed to be a string
       const sheetContactVariations = [
         sheetContact,
         sheetContact.replace(/^\+91/, ''),
@@ -619,14 +588,10 @@ async function getUserPermittedStores(phoneNumber) {
         sheetContact.replace(/[\s\-\(\)]/g, ''),
       ];
       
-      console.log(`STORE DEBUG: Row ${i + 1}: Contact="${sheetContact}" Store="${sheetStore}"`);
-      console.log(`STORE DEBUG: Contact variations: ${sheetContactVariations.join(', ')}`);
-      
       let isMatch = false;
       for (const phoneVar of phoneVariations) {
         for (const sheetVar of sheetContactVariations) {
           if (phoneVar === sheetVar) {
-            console.log(`STORE DEBUG: MATCH FOUND! "${phoneVar}" === "${sheetVar}"`);
             isMatch = true;
             break;
           }
@@ -636,26 +601,20 @@ async function getUserPermittedStores(phoneNumber) {
       
       if (isMatch && sheetStore && sheetStore.trim() !== '') {
         permittedStores.push(sheetStore);
-        console.log(`STORE DEBUG: Added permitted store: ${sheetStore}`);
-      } else if (isMatch) {
-        console.log(`STORE DEBUG: Match found but store name is empty for contact: ${sheetContact}`);
       }
     }
     
-    console.log(`STORE DEBUG: Final result: Found ${permittedStores.length} permitted stores for ${phoneNumber}:`, permittedStores);
     return permittedStores;
     
   } catch (error) {
-    console.error('STORE DEBUG: Error getting permitted stores:', error);
+    console.error('Error getting permitted stores:', error);
     return [];
   }
 }
 
-// FIXED: Smart Stock Query with proper greetings and order forms
+// Smart Stock Query with proper greetings and order forms
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
-    console.log('Processing SMART stock query for:', from);
-    console.log('Search terms:', searchTerms);
     
     // Validate search terms (minimum 5 characters, alphanumeric allowed)
     const validTerms = searchTerms.filter(term => {
@@ -687,15 +646,11 @@ Please wait while I search all stock sheets...`, productId, phoneId);
     const searchResults = await searchStockWithPartialMatch(validTerms);
     const permittedStores = await getUserPermittedStores(from);
     
-    console.log(`Smart search completed for ${from}`);
-    
     // Count total results
     let totalResults = 0;
     validTerms.forEach(term => {
       totalResults += (searchResults[term] || []).length;
     });
-    
-    console.log(`Total results found: ${totalResults}`);
     
     if (totalResults === 0) {
       const noResultsMessage = `*No Results Found*
@@ -731,7 +686,7 @@ Type /menu for main menu`;
         }
       });
       
-      // FIXED: Always show ordering section with proper permissions handling
+      // Always show ordering section with proper permissions handling
       responseMessage += `*Place Orders*\n\n`;
 
       if (permittedStores.length === 0) {
@@ -802,7 +757,6 @@ Type /menu for main menu`, productId, phoneId);
 }
 
 app.post('/webhook', async (req, res) => {
-  console.log('Full webhook data:', JSON.stringify(req.body, null, 2));
 
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -810,14 +764,12 @@ app.post('/webhook', async (req, res) => {
   const phoneId = req.body.phone_id || req.body.phoneId;
 
   if (!message || typeof message !== 'string') {
-    console.log('No valid message - staying silent');
     return res.sendStatus(200);
   }
 
   const trimmedMessage = message.trim();
 
   if (trimmedMessage === '') {
-    console.log('Empty message after trim - staying silent');
     return res.sendStatus(200);
   }
 
@@ -825,7 +777,6 @@ app.post('/webhook', async (req, res) => {
 
   // Debug commands
   if (lowerMessage === '/debuggreet') {
-    console.log('DEBUG COMMAND: Testing greeting functionality');
     const greeting = await getUserGreeting(from);
     const debugMessage = greeting 
       ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
@@ -835,13 +786,11 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // FIXED: Main menu with greeting and debugging
+  // Main menu with greeting
   if (lowerMessage === '/menu' || trimmedMessage === '/') {
-    console.log('Main menu command received - FETCHING GREETING');
     userStates[from] = { currentMenu: 'main' };
     
     const greeting = await getUserGreeting(from);
-    console.log('MENU DEBUG: Greeting result:', greeting);
     
     const mainMenu = `*MAIN MENU*
 
@@ -861,18 +810,15 @@ Please select an option:
 Type the number or use shortcuts`;
     
     const finalMessage = formatGreetingMessage(greeting, mainMenu);
-    console.log('MENU DEBUG: Final message length:', finalMessage.length);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // FIXED: Direct Stock Query shortcut with greeting and debugging
+  // Direct Stock Query shortcut with greeting
   if (lowerMessage === '/stock') {
-    console.log('Direct stock query shortcut used - FETCHING GREETING');
     userStates[from] = { currentMenu: 'smart_stock_query' };
     
     const greeting = await getUserGreeting(from);
-    console.log('STOCK DEBUG: Greeting result:', greeting);
     
     const stockQueryPrompt = `*SMART STOCK QUERY*
 
@@ -891,14 +837,12 @@ Smart search finds partial matches
 Type your search terms below:`;
     
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-    console.log('STOCK DEBUG: Final message length:', finalMessage.length);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
   // Order Query shortcuts with greeting
   if (lowerMessage === '/shirting') {
-    console.log('Direct shirting order query shortcut used - FETCHING GREETING');
     userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
     
     const greeting = await getUserGreeting(from);
@@ -918,7 +862,6 @@ Type your order numbers below:`;
   }
 
   if (lowerMessage === '/jacket') {
-    console.log('Direct jacket order query shortcut used - FETCHING GREETING');
     userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
     
     const greeting = await getUserGreeting(from);
@@ -938,7 +881,6 @@ Type your order numbers below:`;
   }
 
   if (lowerMessage === '/trouser') {
-    console.log('Direct trouser order query shortcut used - FETCHING GREETING');
     userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
     
     const greeting = await getUserGreeting(from);
@@ -997,11 +939,9 @@ Type the number to continue`;
     }
 
     if (trimmedMessage === '3') {
-      console.log('Menu option 3 selected - FETCHING GREETING');
       userStates[from] = { currentMenu: 'smart_stock_query' };
       
       const greeting = await getUserGreeting(from);
-      console.log('MENU3 DEBUG: Greeting result:', greeting);
       
       const stockQueryPrompt = `*SMART STOCK QUERY*
 
@@ -1020,7 +960,6 @@ Smart search finds partial matches
 Type your search terms below:`;
       
       const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-      console.log('MENU3 DEBUG: Final message length:', finalMessage.length);
       await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       return res.sendStatus(200);
     }
@@ -1088,22 +1027,19 @@ Type your search terms below:`;
     }
   }
 
-  console.log('Normal message received - bot staying silent:', trimmedMessage);
   return res.sendStatus(200);
 });
 
-// [Include all remaining functions with proper debugging]
+// All remaining functions
 
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
   try {
-    console.log(`Processing order query for ${category}: ${orderNumbers.join(', ')}`);
     
     await sendWhatsAppMessage(from, `*Checking ${category} orders...*\n\nPlease wait while I search for your order status.`, productId, phoneId);
 
     let responseMessage = `*${category.toUpperCase()} ORDER STATUS*\n\n`;
     
     for (const orderNum of orderNumbers) {
-      console.log(`Searching for order: ${orderNum}`);
       
       const orderStatus = await searchOrderStatus(orderNum, category);
       
@@ -1128,39 +1064,30 @@ async function searchOrderStatus(orderNumber, category) {
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
 
-    console.log(`Searching ${orderNumber} in live sheet (FMS)`);
     
     const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
     if (liveSheetResult.found) {
-      console.log(`Order ${orderNumber} found in live sheet`);
       return liveSheetResult;
     }
 
-    console.log(`Order not found in live sheet, searching completed order folder`);
     
     const folderFiles = await drive.files.list({
       q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
     });
 
-    console.log(`Found ${folderFiles.data.files.length} completed order sheets`);
-
     for (const file of folderFiles.data.files) {
-      console.log(`Searching in ${file.name}`);
       
       try {
         const completedResult = await searchInCompletedSheetSimplified(sheets, file.id, orderNumber);
         if (completedResult.found) {
-          console.log(`Order ${orderNumber} found in ${file.name}`);
           return completedResult;
         }
       } catch (error) {
-        console.log(`Error searching ${file.name}: ${error.message}`);
         continue;
       }
     }
 
-    console.log(`Order ${orderNumber} not found in any system`);
     return { 
       found: false, 
       message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
@@ -1192,7 +1119,6 @@ async function searchInLiveSheet(sheets, orderNumber) {
       if (!row[3]) continue;
       
       if (row.toString().trim() === orderNumber.trim()) {
-        console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
         return {
@@ -1228,9 +1154,8 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       if (!row[3]) continue;
       
       if (row.toString().trim() === orderNumber.trim()) {
-        console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
-        const dispatchDate = row[13] ? row[13].toString().trim() : 'Date not available';
+        const dispatchDate = row[3] ? row[3].toString().trim() : 'Date not available';
         
         return {
           found: true,
@@ -1253,25 +1178,16 @@ function checkProductionStages(row) {
     let lastCompletedStage = null;
     let hasAnyStage = false;
 
-    console.log('Checking ALL production stages for last completed...');
-
     for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
       const stage = PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
       const cellValue = row[columnIndex] ? row[columnIndex].toString().trim() : '';
       
-      console.log(`Stage ${stage.name} (Col ${stage.column}): "${cellValue}"`);
-      
       if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
         lastCompletedStage = stage;
         hasAnyStage = true;
-        console.log(`Stage ${stage.name} completed: ${cellValue}`);
-      } else {
-        console.log(`Stage ${stage.name} not completed`);
       }
     }
-
-    console.log(`Last completed stage: ${lastCompletedStage ? lastCompletedStage.name : 'None'}`);
 
     if (!hasAnyStage) {
       return { message: 'Order is currently under process' };
@@ -1348,7 +1264,7 @@ function parseMultipleOrderInput(input, userState) {
       
       if (match) {
         const quality = match[1].trim();
-        const storeIndex = parseInt(match[12]) - 1;
+        const storeIndex = parseInt(match[1]) - 1;
         const store = userState.permittedStores[storeIndex];
         
         if (store && userState.qualities.includes(quality)) {
@@ -1434,7 +1350,6 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
         }
       }
     );
-    console.log('Message sent successfully');
   } catch (error) {
     console.error('Error sending message:', error.response?.data || error.message);
   }
@@ -1443,15 +1358,16 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('FINAL DEBUGGING VERSION - All Issues Fixed:');
+  console.log('FINAL CORRECTED VERSION - TypeError Fixed:');
+  console.log('✅ Fixed TypeError: sheetContact.replace is not a function');
   console.log('✅ Stock values parsed correctly (handles comma-separated data)');
-  console.log('✅ Store permissions parsed correctly (handles various formats)');
-  console.log('✅ Greetings working in all stock queries with extensive debugging');
+  console.log('✅ Store permissions parsed correctly (handles number and string types)');
+  console.log('✅ Greetings working in all stock queries');
   console.log('✅ Order forms always visible in stock query results');
   console.log('✅ PDF shows ONLY Quality Code and Stock (professional format)');
   console.log('✅ Professional formatting without excessive emojis');
   console.log('✅ Smart partial matching (5+ characters: letters/numbers)');
   console.log('✅ PDF download via Railway file serving');
+  console.log('✅ Reduced console logging to prevent Railway rate limits');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('Debug commands: /debuggreet - Test greeting functionality');
 });
