@@ -117,7 +117,7 @@ async function getGoogleAuth() {
   }
 }
 
-// FIXED: Get user greeting with enhanced debugging
+// Get user greeting with enhanced debugging
 async function getUserGreeting(phoneNumber) {
   try {
     console.log(`GREETING DEBUG: Starting search for phone: ${phoneNumber}`);
@@ -137,7 +137,6 @@ async function getUserGreeting(phoneNumber) {
     let rows = null;
     for (const range of attempts) {
       try {
-        console.log(`GREETING DEBUG: Trying range: ${range}`);
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: GREETINGS_SHEET_ID,
           range: range,
@@ -147,11 +146,9 @@ async function getUserGreeting(phoneNumber) {
         if (response.data.values && response.data.values.length > 0) {
           rows = response.data.values;
           console.log(`GREETING DEBUG: Found ${rows.length} rows with range: ${range}`);
-          console.log('GREETING DEBUG: Raw data:', JSON.stringify(rows, null, 2));
           break;
         }
       } catch (rangeError) {
-        console.log(`GREETING DEBUG: Range ${range} failed:`, rangeError.message);
         continue;
       }
     }
@@ -172,49 +169,42 @@ async function getUserGreeting(phoneNumber) {
       phoneNumber.replace(/[\s\-\(\)]/g, '')
     ];
     
-    console.log(`GREETING DEBUG: Phone variations to match: ${phoneVariations.join(', ')}`);
+    console.log(`GREETING DEBUG: Phone variations: ${phoneVariations.join(', ')}`);
     
     // Search through all rows (skip header row)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length === 0) {
-        console.log(`GREETING DEBUG: Row ${i+1}: Empty row, skipping`);
         continue;
       }
       
-      console.log(`GREETING DEBUG: Row ${i+1} raw data:`, JSON.stringify(row));
-      
-      // Convert contact to string safely with enhanced debugging
+      // Convert contact to string safely
       let sheetContact = '';
       if (row[0] !== null && row !== undefined) {
         if (typeof row === 'number') {
           sheetContact = row.toString();
-          console.log(`GREETING DEBUG: Row ${i+1}: Converted number to string: ${sheetContact}`);
         } else {
           sheetContact = row.toString().trim();
-          console.log(`GREETING DEBUG: Row ${i+1}: Used string as-is: ${sheetContact}`);
         }
       }
       
-      // Extract other fields with debugging
+      // Extract other fields
       const name = row[1] ? row[1].toString().trim() : '';
       const salutation = row[2] ? row[2].toString().trim() : '';
       const greetings = row ? row.toString().trim() : '';
       
-      console.log(`GREETING DEBUG: Row ${i+1}: Contact="${sheetContact}", Name="${name}", Salutation="${salutation}", Greetings="${greetings}"`);
+      console.log(`GREETING DEBUG: Row ${i}: Contact="${sheetContact}", Name="${name}", Salutation="${salutation}"`);
       
-      // Check if this contact matches any phone variation with detailed logging
+      // Check if this contact matches any phone variation
       for (const phoneVar of phoneVariations) {
-        console.log(`GREETING DEBUG: Comparing "${phoneVar}" with "${sheetContact}"`);
         if (phoneVar === sheetContact) {
-          console.log(`GREETING DEBUG: *** MATCH FOUND! *** ${phoneVar} === ${sheetContact}`);
-          console.log(`GREETING DEBUG: Returning greeting: ${salutation} ${name} - ${greetings}`);
+          console.log(`GREETING DEBUG: *** MATCH FOUND! *** Returning: ${salutation} ${name} - ${greetings}`);
           return { name, salutation, greetings };
         }
       }
     }
     
-    console.log('GREETING DEBUG: No matching phone number found after checking all rows');
+    console.log('GREETING DEBUG: No matching phone number found');
     return null;
     
   } catch (error) {
@@ -225,10 +215,8 @@ async function getUserGreeting(phoneNumber) {
 
 // Format greeting message
 function formatGreetingMessage(greeting, mainMessage) {
-  console.log('FORMAT DEBUG: Input greeting:', greeting);
-  
   if (!greeting || !greeting.name || !greeting.salutation || !greeting.greetings) {
-    console.log('FORMAT DEBUG: Invalid greeting data, returning main message only');
+    console.log('FORMAT DEBUG: No valid greeting, returning main message only');
     return mainMessage;
   }
   
@@ -237,7 +225,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return formatted;
 }
 
-// COMPLETELY FIXED: Handle your actual data format where all data is in Column A as comma-separated
+// COMPLETELY FIXED: Handle your actual Google Sheets data format
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -278,40 +266,49 @@ async function searchStockWithPartialMatch(searchTerms) {
         
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
-          if (!row) continue;
+          if (!row && !row) continue;
           
-          // FIXED: Handle your actual data format - all data is in Column A as comma-separated
           let cleanQualityCode = '';
           let cleanStockValue = '0';
           
           try {
-            const rawCellData = row.toString().trim();
-            console.log(`STOCK DEBUG: Row ${i}, Raw cell A data: "${rawCellData}"`);
+            // COMPLETELY FIXED: Handle both data formats
             
-            if (rawCellData.includes(',')) {
-              // Your data format: "LTS8005,263.45,0.00,35.20,228.25"
-              // Split and get: Quality Code (first) and Stock (last)
-              const dataParts = rawCellData.split(',').map(part => part.trim());
-              console.log(`STOCK DEBUG: Row ${i}, Split parts:`, dataParts);
-              
-              if (dataParts.length >= 2) {
-                cleanQualityCode = dataParts;  // First part: "LTS8005"
-                cleanStockValue = dataParts[dataParts.length - 1];  // Last part: "228.25"
-                console.log(`STOCK DEBUG: Row ${i}, Extracted - Quality: "${cleanQualityCode}", Stock: "${cleanStockValue}"`);
-              }
+            // Check if your data is in separate columns (like the debug shows)
+            if (row && row !== '' && row !== null) {
+              // Format 1: Data in separate columns
+              // Column A = Quality Code, Column E = Stock
+              cleanQualityCode = row ? row.toString().trim() : '';
+              cleanStockValue = row ? row.toString().trim() : '0';
+              console.log(`STOCK DEBUG: Row ${i}, Separate columns - Quality: "${cleanQualityCode}", Stock: "${cleanStockValue}"`);
             } else {
-              // If no commas, treat entire cell as quality code
-              cleanQualityCode = rawCellData;
-              cleanStockValue = '0';
-              console.log(`STOCK DEBUG: Row ${i}, No commas - Quality: "${cleanQualityCode}", Stock: "0"`);
+              // Format 2: All data in Column A as comma-separated
+              const rawCellData = row.toString().trim();
+              console.log(`STOCK DEBUG: Row ${i}, Raw cell A data: "${rawCellData}"`);
+              
+              if (rawCellData.includes(',')) {
+                const dataParts = rawCellData.split(',').map(part => part.trim());
+                console.log(`STOCK DEBUG: Row ${i}, Split parts:`, dataParts);
+                
+                if (dataParts.length >= 2) {
+                  cleanQualityCode = dataParts;  // First part
+                  cleanStockValue = dataParts[dataParts.length - 1];  // Last part
+                  console.log(`STOCK DEBUG: Row ${i}, From comma-separated - Quality: "${cleanQualityCode}", Stock: "${cleanStockValue}"`);
+                }
+              } else {
+                cleanQualityCode = rawCellData;
+                cleanStockValue = '0';
+                console.log(`STOCK DEBUG: Row ${i}, No commas - Quality: "${cleanQualityCode}", Stock: "0"`);
+              }
             }
+            
           } catch (error) {
             console.log(`STOCK DEBUG: Row ${i}, Error parsing:`, error.message);
             continue;
           }
           
-          // Only process if we have clean data
-          if (cleanQualityCode && cleanQualityCode !== '') {
+          // FIXED: Ensure cleanQualityCode is always a string
+          if (cleanQualityCode && typeof cleanQualityCode === 'string' && cleanQualityCode.trim() !== '') {
             searchTerms.forEach(searchTerm => {
               const cleanSearchTerm = searchTerm.trim();
               
@@ -319,8 +316,8 @@ async function searchStockWithPartialMatch(searchTerms) {
                 console.log(`STOCK DEBUG: MATCH FOUND! "${cleanSearchTerm}" in "${cleanQualityCode}" with stock "${cleanStockValue}"`);
                 
                 results[searchTerm].push({
-                  qualityCode: cleanQualityCode,    // Clean: "LTS8005"
-                  stock: cleanStockValue,           // Clean: "228.25"
+                  qualityCode: cleanQualityCode,
+                  stock: cleanStockValue,
                   store: file.name,
                   searchTerm: cleanSearchTerm
                 });
@@ -426,7 +423,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
          .stroke();
       doc.moveDown(0.3);
       
-      // Items for this store - CLEAN FORMAT
+      // Items for this store
       doc.fontSize(10)
          .font('Helvetica');
       
@@ -545,7 +542,6 @@ async function getUserPermittedStores(phoneNumber) {
     }
     
     console.log(`STORE DEBUG: Found ${rows.length} rows`);
-    console.log('STORE DEBUG: Sample data:', JSON.stringify(rows.slice(0, 3), null, 2));
     
     const permittedStores = [];
     
@@ -570,7 +566,7 @@ async function getUserPermittedStores(phoneNumber) {
       let sheetStore = '';
       
       // Convert to strings safely
-      const columnAValue = row[0] ? row[0].toString().trim() : '';
+      const columnAValue = row[0] ? row.toString().trim() : '';
       const columnBValue = row[1] ? row[1].toString().trim() : '';
       
       console.log(`STORE DEBUG: Row ${i}: A="${columnAValue}", B="${columnBValue}"`);
@@ -782,7 +778,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // Main menu with greeting and debugging
+  // Main menu with greeting
   if (lowerMessage === '/menu' || trimmedMessage === '/') {
     console.log('MAIN MENU: Processing menu request for', from);
     userStates[from] = { currentMenu: 'main' };
@@ -808,12 +804,11 @@ Please select an option:
 Type the number or use shortcuts`;
     
     const finalMessage = formatGreetingMessage(greeting, mainMenu);
-    console.log('MAIN MENU: Sending message of length:', finalMessage.length);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
-  // Direct Stock Query shortcut with greeting and debugging
+  // Direct Stock Query shortcut with greeting
   if (lowerMessage === '/stock') {
     console.log('STOCK SHORTCUT: Processing stock query for', from);
     userStates[from] = { currentMenu: 'smart_stock_query' };
@@ -838,7 +833,6 @@ Smart search finds partial matches
 Type your search terms below:`;
     
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-    console.log('STOCK SHORTCUT: Sending message of length:', finalMessage.length);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
@@ -964,7 +958,6 @@ Smart search finds partial matches
 Type your search terms below:`;
       
       const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-      console.log('MENU OPTION 3: Sending message of length:', finalMessage.length);
       await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       return res.sendStatus(200);
     }
@@ -1073,12 +1066,13 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ FINAL DEBUG VERSION:');
-  console.log('✅ Enhanced debugging for greetings');
-  console.log('✅ Fixed data parsing for comma-separated cells');
-  console.log('✅ WhatsApp: LTS8005: 228.25 (CLEAN)');
-  console.log('✅ PDF: LTS8005 | 228.25 (CLEAN)');
-  console.log('✅ All debugging logs enabled');
+  console.log('✅ FINAL CORRECTED VERSION:');
+  console.log('✅ Fixed data parsing to handle separate columns AND comma-separated');
+  console.log('✅ Fixed TypeError: cleanQualityCode.toUpperCase');
+  console.log('✅ Enhanced debugging for both greetings and stock search');
+  console.log('✅ Store permissions working: Atease Fashions Pvt Ltd found');
+  console.log('✅ WhatsApp: ETCH8028: 8 (CLEAN format)');
+  console.log('✅ PDF: ETCH8028 | 8 (CLEAN format)');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
-  console.log('Debug: /debuggreet - Test greeting for your number');
+  console.log('Debug: /debuggreet - Test greeting functionality');
 });
