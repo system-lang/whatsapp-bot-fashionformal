@@ -1006,12 +1006,10 @@ async function searchInLiveSheet(sheets, orderNumber) {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row[3]) continue; // Column D should have order number
-      
-      const sheetOrderNumber = row.toString().trim();
-      console.log(`ORDER: Checking row ${i}, order in sheet: "${sheetOrderNumber}" vs searching: "${orderNumber}"`);
-      
-      if (sheetOrderNumber === orderNumber.trim()) {
+      const sheetOrderNumber = row[3] ? row[3].toString().trim() : ''; // Column D (index 3)
+      if (!sheetOrderNumber) continue;
+
+      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
         console.log(`ORDER: MATCH FOUND in live sheet!`);
         const stageStatus = checkProductionStages(row);
         return {
@@ -1048,14 +1046,12 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row[3]) continue; // Column D should have order number
-      
-      if (row.toString().trim() === orderNumber.trim()) {
+      const sheetOrderNumber = row[3] ? row[3].toString().trim() : ''; // Column D (index 3)
+      if (!sheetOrderNumber) continue;
+
+      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
         console.log(`ORDER: MATCH FOUND in completed sheet!`);
-        
-        // Column CH (index 87) should have dispatch date
-        const dispatchDate = row ? row.toString().trim() : 'Date not available';
-        
+        const dispatchDate = row[86] ? row[86].toString().trim() : 'Date not available'; // Column CH (index 86)
         return {
           found: true,
           message: `Order got dispatched on ${dispatchDate}`,
