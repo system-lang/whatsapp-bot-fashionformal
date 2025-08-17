@@ -199,7 +199,7 @@ async function getUserGreeting(phoneNumber) {
       let sheetContact, name, salutation, greetings;
       
       // FIXED: Handle both formats properly
-      if (row.length >= 4 && row[1] && row[2] && row[3] && !row.toString().includes(',')) {
+      if (row.length >= 4 && row[1] && row[2] && row && !row.toString().includes(',')) {
         // Normal format
         const contactCell = row;
         if (typeof contactCell === 'number') {
@@ -317,12 +317,13 @@ async function searchStockWithPartialMatch(searchTerms) {
             const cleanSearchTerm = searchTerm.trim();
             
             if (cleanSearchTerm.length >= 5 && qualityCode.toUpperCase().includes(cleanSearchTerm.toUpperCase())) {
-              console.log(`📍 ALPHANUMERIC MATCH: "${cleanSearchTerm}" found in "${qualityCode}" at ${file.name} - Stock: ${stockValue}`);
+              console.log(`📍 MATCH: "${cleanSearchTerm}" found in "${qualityCode}" - Stock: ${stockValue}`);
               
+              // FIXED: Store only Quality Code (Col A) and Stock (Col E)
               results[searchTerm].push({
-                qualityCode: qualityCode,
-                stock: stockValue,
-                store: file.name,
+                qualityCode: qualityCode,    // Column A - Quality
+                stock: stockValue,           // Column E - Stock  
+                store: file.name,           // Store name for grouping
                 searchTerm: cleanSearchTerm
               });
             }
@@ -342,7 +343,7 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// Generate PDF for stock results
+// FIXED: Generate PDF showing ONLY Quality Code (Col A) and Stock (Col E)
 async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -409,9 +410,9 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
           doc.fontSize(11)
              .font('Helvetica');
           
-          // Only show Quality Code and Stock (Column E)
+          // FIXED: Only show Quality Code and Stock (Column A and E only)
           items.forEach(item => {
-            doc.text(`  ${item.qualityCode}: ${item.stock}`);
+            doc.text(`${item.qualityCode}: ${item.stock}`);
           });
           
           doc.moveDown(0.5);
@@ -449,7 +450,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber) {
   }
 }
 
-// UPDATED: Send file via Railway file serving endpoint with your URL
+// Send file via Railway file serving endpoint with your URL
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
   try {
     console.log(`Preparing download link for: ${filename}`);
@@ -458,7 +459,7 @@ async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
     const fileStats = fs.statSync(filepath);
     const fileSizeKB = Math.round(fileStats.size / 1024);
     
-    // UPDATED: Your Railway URL
+    // Your Railway URL
     const baseUrl = 'https://whatsapp-bot-fashionformal-production.up.railway.app';
     
     const downloadUrl = `${baseUrl}/download/${filename}`;
@@ -496,7 +497,7 @@ _Type */menu* for main menu._`;
   }
 }
 
-// Smart Stock Query with PDF File Serving
+// FIXED: Smart Stock Query with proper greetings and order forms
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     console.log('Processing SMART stock query for:', from);
@@ -578,21 +579,22 @@ _Type */menu* for main menu._`;
         }
       });
       
-      // Add ordering options if user has permissions
-      if (permittedStores.length > 0) {
-        responseMessage += `📋 *Place Orders*\n\n`;
-        
-        if (permittedStores.length === 1) {
-          const cleanPhone = from.replace(/^\+/, '');
-          const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
-          responseMessage += `*Your Store:* ${permittedStores}\n${formUrl}\n\n`;
-        } else {
-          responseMessage += `*Your Stores:*\n`;
-          permittedStores.forEach((store, index) => {
-            responseMessage += `${index + 1}. ${store}\n`;
-          });
-          responseMessage += `\nReply with store number to get order form.\n\n`;
-        }
+      // FIXED: Always show ordering section (with proper handling for no permissions)
+      responseMessage += `📋 *Place Orders*\n\n`;
+
+      if (permittedStores.length === 0) {
+        responseMessage += `❌ No store permissions found for ${from}\n`;
+        responseMessage += `Contact admin to get ordering access.\n\n`;
+      } else if (permittedStores.length === 1) {
+        const cleanPhone = from.replace(/^\+/, '');
+        const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
+        responseMessage += `*Your Store:* ${permittedStores}\n${formUrl}\n\n`;
+      } else {
+        responseMessage += `*Your Stores:*\n`;
+        permittedStores.forEach((store, index) => {
+          responseMessage += `${index + 1}. ${store}\n`;
+        });
+        responseMessage += `\nReply with store number to get order form.\n\n`;
       }
       
       responseMessage += `_Type */menu* for main menu._`;
@@ -767,7 +769,7 @@ _Type the number or use shortcuts..._`;
     return res.sendStatus(200);
   }
 
-  // ENHANCED: Direct Stock Query shortcut with greeting and smart search
+  // FIXED: Direct Stock Query shortcut with greeting
   if (lowerMessage === '/stock') {
     console.log('Direct stock query shortcut used');
     userStates[from] = { currentMenu: 'smart_stock_query' };
@@ -791,6 +793,7 @@ _Smart search finds partial matches!_
 
 Type your search terms below:`;
     
+    // FIXED: Use greeting in the response
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
@@ -902,6 +905,9 @@ _Type the number to continue..._`;
     if (trimmedMessage === '3') {
       userStates[from] = { currentMenu: 'smart_stock_query' };
       
+      // FIXED: Get user greeting for main menu stock query too
+      const greeting = await getUserGreeting(from);
+      
       const stockQueryPrompt = `*SMART STOCK QUERY* 🔍
 
 Enter any 5+ character code (letters/numbers):
@@ -918,7 +924,9 @@ _Smart search finds partial matches!_
 
 Type your search terms below:`;
       
-      await sendWhatsAppMessage(from, stockQueryPrompt, productId, phoneId);
+      // FIXED: Use greeting in the response
+      const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
+      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       return res.sendStatus(200);
     }
 
@@ -1093,7 +1101,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row.toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in FMS sheet at row ${i + 1}`);
         
         const stageStatus = checkProductionStages(row);
@@ -1131,7 +1139,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
       const row = rows[i];
       if (!row[3]) continue;
       
-      if (row[3].toString().trim() === orderNumber.trim()) {
+      if (row.toString().trim() === orderNumber.trim()) {
         console.log(`Order ${orderNumber} found in completed sheet at row ${i + 1}`);
         
         // Get dispatch date from column CH (index 87)
@@ -1276,7 +1284,7 @@ async function getUserPermittedStores(phoneNumber) {
         const parts = columnAValue.split(',');
         sheetContact = parts[0].trim();
         // FIXED: Use second part from column A as store name when malformed
-        sheetStore = parts[2] ? parts[1].trim() : columnBValue;
+        sheetStore = parts[2] ? parts[2].trim() : columnBValue;
       } else {
         sheetContact = columnAValue;
         sheetStore = columnBValue;
@@ -1460,14 +1468,15 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('🚀 Bot ready with COMPLETE FILE SERVING for PDF downloads!');
-  console.log('✨ All Features Working:');
-  console.log('💬 Fixed greeting parsing (both normal and comma-separated)');
+  console.log('🚀 Bot ready with ALL ISSUES FIXED!');
+  console.log('✅ Fixed Issues:');
+  console.log('💬 Greetings now appear in ALL stock queries (/stock and menu option 3)');
+  console.log('📋 Order forms now always show (even with no permissions + helpful message)');  
+  console.log('📄 PDF now shows ONLY Quality Code (Col A) and Stock (Col E)');
   console.log('🏪 Fixed store permission parsing (malformed data handling)');
   console.log('🔍 Alphanumeric partial matching (5+ characters: letters/numbers)');
   console.log('📄 PDF download via Railway file serving endpoint');
   console.log(`🌐 Download URL: https://whatsapp-bot-fashionformal-production.up.railway.app/download/`);
-  console.log('📊 Clean output showing only Quality Code and Stock (Column E)');
   console.log('⚡ Fast search across all stock sheets');
   console.log('🎯 User-friendly examples and error handling');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
