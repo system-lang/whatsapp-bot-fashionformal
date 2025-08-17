@@ -288,7 +288,7 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// Generate PDF with proper format
+// Generate PDF with proper format (NO order form section in PDF)
 async function generateStockPDF(searchResults, searchTerms, phoneNumber, permittedStores) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -384,33 +384,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
       doc.moveDown(0.5);
     });
 
-    // Add Order Forms section to PDF
-    if (permittedStores && permittedStores.length > 0) {
-      doc.fontSize(14)
-         .font('Helvetica-Bold')
-         .text('PLACE ORDERS');
-      
-      doc.moveDown(0.3);
-      
-      doc.fontSize(10)
-         .font('Helvetica');
-      
-      if (permittedStores.length === 1) {
-        const cleanPhone = phoneNumber.replace(/^\+/, '');
-        const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
-        doc.text(`Your Store: ${permittedStores}`);
-        doc.text(`Order Form: ${formUrl}`);
-      } else {
-        doc.text('Your Stores:');
-        permittedStores.forEach((store, index) => {
-          doc.text(`${index + 1}. ${store}`);
-        });
-        doc.text('Contact admin with store number for order form');
-      }
-      
-      doc.moveDown(0.5);
-    }
-
     // Footer
     if (totalResults === 0) {
       doc.fontSize(12)
@@ -437,16 +410,26 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
   }
 }
 
-// Send file via Railway
-async function sendWhatsAppFile(to, filepath, filename, productId, phoneId) {
+// Send file via Railway (Order Form link in WhatsApp message, NOT in PDF)
+async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, permittedStores) {
   try {
-    
     const fileStats = fs.statSync(filepath);
     const fileSizeKB = Math.round(fileStats.size / 1024);
-    
+
     const baseUrl = 'https://whatsapp-bot-fashionformal-production.up.railway.app';
     const downloadUrl = `${baseUrl}/download/${filename}`;
-    
+
+    let orderFormMessage = '';
+    if (permittedStores && permittedStores.length > 0) {
+      if (permittedStores.length === 1) {
+        const cleanPhone = to.replace(/^\+/, '');
+        const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
+        orderFormMessage = `\n\n*Order Form Link:*\n${formUrl}\n`;
+      } else {
+        orderFormMessage = `\n\n*Order Form Link:*\nReply with your store number to get the order form link.`;
+      }
+    }
+
     const message = `*Stock Results Generated*
 
 File: ${filename}
@@ -454,15 +437,16 @@ Size: ${fileSizeKB} KB
 
 Download your PDF:
 ${downloadUrl}
+${orderFormMessage}
 
 Click the link above to download
 Works on mobile and desktop
 Link expires in 5 minutes
 
 Type /menu for main menu`;
-    
+
     await sendWhatsAppMessage(to, message, productId, phoneId);
-    
+
   } catch (error) {
     console.error('Error creating download link:', error);
   }
@@ -640,7 +624,7 @@ Type /menu for main menu`;
       await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
       
     } else {
-      // LONG LIST: Generate PDF with order forms
+      // LONG LIST: Generate PDF (NO order form in PDF, only in WhatsApp message)
       try {
         const pdfResult = await generateStockPDF(searchResults, validTerms, from, permittedStores);
         
@@ -651,10 +635,10 @@ Total Results: ${totalResults} items
 PDF Generated: ${pdfResult.filename}
 
 Results are too long for WhatsApp
-PDF includes order forms for your stores`;
+PDF does NOT include order forms—see WhatsApp message for order form link`;
         
         await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
-        await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId);
+        await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, permittedStores);
         
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
