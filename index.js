@@ -67,7 +67,6 @@ const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
-const BOT_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE'; // Same as your main sheet
 
 // Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
@@ -115,237 +114,6 @@ async function getGoogleAuth() {
   } catch (error) {
     console.error('Error setting up Google auth:', error);
     throw error;
-  }
-}
-
-// NEW: Get user bot permissions from Google Sheet
-async function getUserBotPermissions(phoneNumber) {
-  try {
-    console.log(`PERMISSION: Getting permissions for phone: ${phoneNumber}`);
-    
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: BOT_PERMISSION_SHEET_ID,
-      range: 'BOT Permission!A:C', // Contact Number, Menu, Sub Menu
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      console.log('PERMISSION: No data found');
-      return {};
-    }
-    
-    console.log(`PERMISSION: Found ${rows.length} rows`);
-    
-    const permissions = {};
-    
-    const phoneVariations = [
-      phoneNumber,
-      phoneNumber.replace(/^\+91/, ''),
-      phoneNumber.replace(/^\+/, ''),
-      phoneNumber.replace(/^91/, ''),
-      phoneNumber.replace(/^0/, ''),
-      phoneNumber.slice(-10)
-    ];
-    
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length < 2) continue;
-      
-      const sheetContact = row[0] ? row[0].toString().trim() : '';
-      const menu = row[1] ? row[1].toString().trim() : '';
-      const subMenu = row ? row.toString().trim() : '';
-      
-      console.log(`PERMISSION: Row ${i} - Contact: "${sheetContact}", Menu: "${menu}", SubMenu: "${subMenu}"`);
-      
-      // Check for phone match
-      for (const phoneVar of phoneVariations) {
-        if (phoneVar === sheetContact) {
-          console.log(`PERMISSION: MATCH! ${phoneVar} === ${sheetContact}`);
-          
-          if (menu && menu !== '') {
-            if (!permissions[menu]) {
-              permissions[menu] = [];
-            }
-            
-            // Add sub menu if exists, otherwise add empty string to indicate main menu access
-            if (subMenu && subMenu !== '') {
-              permissions[menu].push(subMenu);
-            } else {
-              // For menus without sub-menu, add a marker
-              if (permissions[menu].length === 0) {
-                permissions[menu].push('_MAIN_ACCESS_');
-              }
-            }
-          }
-          break;
-        }
-      }
-    }
-    
-    console.log(`PERMISSION: Final permissions:`, permissions);
-    return permissions;
-    
-  } catch (error) {
-    console.error('PERMISSION: Error:', error);
-    return {};
-  }
-}
-
-// NEW: Check if user has permission for specific menu/submenu
-function hasPermission(permissions, menu, subMenu = null) {
-  if (!permissions || Object.keys(permissions).length === 0) {
-    console.log(`PERMISSION CHECK: No permissions found - DENIED for ${menu}${subMenu ? '/' + subMenu : ''}`);
-    return false;
-  }
-  
-  if (!permissions[menu]) {
-    console.log(`PERMISSION CHECK: Menu "${menu}" not found - DENIED`);
-    return false;
-  }
-  
-  // If checking for submenu
-  if (subMenu) {
-    const hasSubMenu = permissions[menu].includes(subMenu);
-    console.log(`PERMISSION CHECK: ${menu}/${subMenu} - ${hasSubMenu ? 'ALLOWED' : 'DENIED'}`);
-    return hasSubMenu;
-  }
-  
-  // If checking for main menu access
-  const hasMainAccess = permissions[menu].length > 0;
-  console.log(`PERMISSION CHECK: ${menu} main access - ${hasMainAccess ? 'ALLOWED' : 'DENIED'}`);
-  return hasMainAccess;
-}
-
-// NEW: Generate dynamic menu based on permissions
-async function generateDynamicMenu(phoneNumber, greeting) {
-  try {
-    const permissions = await getUserBotPermissions(phoneNumber);
-    
-    let menuOptions = [];
-    let shortcuts = [];
-    let optionNumber = 1;
-    
-    // Check each main menu option
-    if (hasPermission(permissions, 'Ticket')) {
-      menuOptions.push(`${optionNumber}. Ticket`);
-      optionNumber++;
-    }
-    
-    if (hasPermission(permissions, 'Order Query')) {
-      menuOptions.push(`${optionNumber}. Order Query`);
-      shortcuts.push('/shirting - Shirting Orders');
-      shortcuts.push('/jacket - Jacket Orders');
-      shortcuts.push('/trouser - Trouser Orders');
-      optionNumber++;
-    }
-    
-    if (hasPermission(permissions, 'Stock Query')) {
-      menuOptions.push(`${optionNumber}. Stock Query`);
-      shortcuts.push('/stock - Direct Stock Query');
-      optionNumber++;
-    }
-    
-    if (hasPermission(permissions, 'Documents')) {
-      menuOptions.push(`${optionNumber}. Document`);
-      optionNumber++;
-    }
-    
-    // If no permissions found, show access denied message
-    if (menuOptions.length === 0) {
-      const noAccessMessage = `*ACCESS RESTRICTED*
-
-You don't have permission to access any menu options.
-
-Please contact your administrator to get access.
-
-Your phone number: ${phoneNumber}`;
-      
-      return formatGreetingMessage(greeting, noAccessMessage);
-    }
-    
-    // Build the menu
-    let mainMenu = '*MAIN MENU*\n\nPlease select an option:\n\n';
-    mainMenu += menuOptions.join('\n');
-    
-    if (shortcuts.length > 0) {
-      mainMenu += '\n\n*SHORTCUTS:*\n';
-      mainMenu += shortcuts.join('\n');
-    }
-    
-    mainMenu += '\n\nType the number or use shortcuts';
-    
-    return formatGreetingMessage(greeting, mainMenu);
-    
-  } catch (error) {
-    console.error('Error generating dynamic menu:', error);
-    const errorMessage = `*MENU ERROR*
-
-Unable to load your permissions.
-Please try again later.
-
-Type /menu to retry`;
-    
-    return formatGreetingMessage(greeting, errorMessage);
-  }
-}
-
-// NEW: Generate dynamic ticket menu based on permissions
-async function generateTicketMenu(phoneNumber) {
-  try {
-    const permissions = await getUserBotPermissions(phoneNumber);
-    
-    if (!hasPermission(permissions, 'Ticket')) {
-      return `*ACCESS DENIED*
-
-You don't have permission to access Ticket options.
-
-Type /menu to return to main menu`;
-    }
-    
-    let ticketMenu = '*TICKET OPTIONS*\n\nClick the links below to access forms:\n\n';
-    let hasAnyTicketOption = false;
-    
-    // Check each ticket sub-option
-    if (hasPermission(permissions, 'Ticket', 'Help Ticket')) {
-      ticketMenu += `*HELP TICKET*\n${links.helpTicket}\n\n`;
-      hasAnyTicketOption = true;
-    }
-    
-    if (hasPermission(permissions, 'Ticket', 'Leave Form')) {
-      ticketMenu += `*LEAVE FORM*\n${links.leave}\n\n`;
-      hasAnyTicketOption = true;
-    }
-    
-    if (hasPermission(permissions, 'Ticket', 'Delegation')) {
-      ticketMenu += `*DELEGATION*\n${links.delegation}\n\n`;
-      hasAnyTicketOption = true;
-    }
-    
-    if (!hasAnyTicketOption) {
-      ticketMenu = `*TICKET ACCESS RESTRICTED*
-
-You don't have permission to access any ticket options.
-
-Type /menu to return to main menu`;
-    } else {
-      ticketMenu += 'Type /menu to return to main menu';
-    }
-    
-    return ticketMenu;
-    
-  } catch (error) {
-    console.error('Error generating ticket menu:', error);
-    return `*TICKET ERROR*
-
-Unable to load ticket permissions.
-Please try again later.
-
-Type /menu to return to main menu`;
   }
 }
 
@@ -405,10 +173,10 @@ async function getUserGreeting(phoneNumber) {
       if (!row || row.length < 4) continue;
       
       // FIXED: Extract each column individually
-      const sheetContact = row[0] ? row.toString().trim() : '';
+      const sheetContact = row[0] ? row[0].toString().trim() : '';
       const name = row[1] ? row[1].toString().trim() : '';
-      const salutation = row ? row.toString().trim() : '';
-      const greetings = row ? row.toString().trim() : '';
+      const salutation = row[2] ? row[2].toString().trim() : '';
+      const greetings = row[3] ? row[3].toString().trim() : '';
       
       console.log(`GREETING: Row ${i} - Contact: "${sheetContact}", Name: "${name}", Salutation: "${salutation}", Greetings: "${greetings}"`);
       
@@ -482,8 +250,8 @@ async function searchStockWithPartialMatch(searchTerms) {
           if (!row || row.length < 5) continue;
           
           // FIXED: Extract individual columns properly
-          const colA = row[0] ? row.toString().trim() : '';
-          const colE = row ? row.toString().trim() : '';
+          const colA = row[0] ? row[0].toString().trim() : '';
+          const colE = row[4] ? row[4].toString().trim() : '';
           
           // Only process if we have both quality code and stock
           if (colA && colE && colA !== '' && colE !== '') {
@@ -723,7 +491,7 @@ async function getUserPermittedStores(phoneNumber) {
       if (!row || row.length < 2) continue;
       
       // FIXED: Extract individual columns
-      const sheetContact = row[0] ? row.toString().trim() : '';
+      const sheetContact = row[0] ? row[0].toString().trim() : '';
       const sheetStore = row[1] ? row[1].toString().trim() : '';
       
       console.log(`STORE: Row ${i} - Contact: "${sheetContact}", Store: "${sheetStore}"`);
@@ -894,6 +662,281 @@ Type /menu for main menu`, productId, phoneId);
   }
 }
 
+// Main webhook handler
+app.post('/webhook', async (req, res) => {
+
+  const message = req.body.message?.text;
+  const from = req.body.user?.phone;
+  const productId = req.body.product_id || req.body.productId;
+  const phoneId = req.body.phone_id || req.body.phoneId;
+
+  if (!message || typeof message !== 'string') {
+    return res.sendStatus(200);
+  }
+
+  const trimmedMessage = message.trim();
+  if (trimmedMessage === '') {
+    return res.sendStatus(200);
+  }
+
+  const lowerMessage = trimmedMessage.toLowerCase();
+
+  // Debug greeting command
+  if (lowerMessage === '/debuggreet') {
+    console.log('DEBUG: Testing greeting for', from);
+    const greeting = await getUserGreeting(from);
+    const debugMessage = greeting 
+      ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
+      : 'No greeting found in sheet';
+    
+    await sendWhatsAppMessage(from, `Greeting debug result: ${debugMessage}`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Main menu with greeting
+  if (lowerMessage === '/menu' || trimmedMessage === '/') {
+    console.log('MAIN MENU: Processing for', from);
+    userStates[from] = { currentMenu: 'main' };
+    
+    const greeting = await getUserGreeting(from);
+    console.log('MAIN MENU: Greeting result:', greeting);
+    
+    const mainMenu = `*MAIN MENU*
+
+Please select an option:
+
+1. Ticket
+2. Order Query  
+3. Stock Query
+4. Document
+
+*SHORTCUTS:*
+/stock - Direct Stock Query
+/shirting - Shirting Orders
+/jacket - Jacket Orders  
+/trouser - Trouser Orders
+
+Type the number or use shortcuts`;
+    
+    const finalMessage = formatGreetingMessage(greeting, mainMenu);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Direct Stock Query shortcut with greeting
+  if (lowerMessage === '/stock') {
+    console.log('STOCK SHORTCUT: Processing for', from);
+    userStates[from] = { currentMenu: 'smart_stock_query' };
+    
+    const greeting = await getUserGreeting(from);
+    console.log('STOCK SHORTCUT: Greeting result:', greeting);
+    
+    const stockQueryPrompt = `*SMART STOCK QUERY*
+
+Enter any 5+ character code (letters/numbers):
+
+Examples:
+- 11010 (finds 11010088471-001)
+- ABC12 (finds ABC123456-XYZ)  
+- 88471 (finds 11010088471-001)
+
+Multiple searches: Separate with commas
+Example: 11010, ABC12, 88471
+
+Smart search finds partial matches
+
+Type your search terms below:`;
+    
+    const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Order shortcuts with greeting
+  if (lowerMessage === '/shirting') {
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
+    
+    const greeting = await getUserGreeting(from);
+    
+    const shirtingQuery = `*SHIRTING ORDER QUERY*
+
+Please enter your Order Number(s):
+
+Single order: ABC123
+Multiple orders: ABC123, DEF456, GHI789
+
+Type your order numbers below:`;
+    
+    const finalMessage = formatGreetingMessage(greeting, shirtingQuery);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  if (lowerMessage === '/jacket') {
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
+    
+    const greeting = await getUserGreeting(from);
+    
+    const jacketQuery = `*JACKET ORDER QUERY*
+
+Please enter your Order Number(s):
+
+Single order: ABC123
+Multiple orders: ABC123, DEF456, GHI789
+
+Type your order numbers below:`;
+    
+    const finalMessage = formatGreetingMessage(greeting, jacketQuery);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  if (lowerMessage === '/trouser') {
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
+    
+    const greeting = await getUserGreeting(from);
+    
+    const trouserQuery = `*TROUSER ORDER QUERY*
+
+Please enter your Order Number(s):
+
+Single order: ABC123
+Multiple orders: ABC123, DEF456, GHI789
+
+Type your order numbers below:`;
+    
+    const finalMessage = formatGreetingMessage(greeting, trouserQuery);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Handle menu selections
+  if (userStates[from] && userStates[from].currentMenu === 'main') {
+    if (trimmedMessage === '1') {
+      const ticketMenu = `*TICKET OPTIONS*
+
+Click the links below to access forms directly:
+
+*HELP TICKET*
+${links.helpTicket}
+
+*LEAVE FORM*
+${links.leave}
+
+*DELEGATION*
+${links.delegation}
+
+Type /menu to return to main menu`;
+      
+      await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
+      userStates[from].currentMenu = 'completed';
+      return res.sendStatus(200);
+    }
+
+    if (trimmedMessage === '2') {
+      userStates[from].currentMenu = 'order_query';
+      const orderQueryMenu = `*ORDER QUERY*
+
+Please select the product category:
+
+1. Shirting
+2. Jacket  
+3. Trouser
+
+Type the number to continue`;
+      
+      await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    if (trimmedMessage === '3') {
+      console.log('MENU 3: Processing stock query for', from);
+      userStates[from] = { currentMenu: 'smart_stock_query' };
+      
+      const greeting = await getUserGreeting(from);
+      console.log('MENU 3: Greeting result:', greeting);
+      
+      const stockQueryPrompt = `*SMART STOCK QUERY*
+
+Enter any 5+ character code (letters/numbers):
+
+Examples:
+- 11010 (finds 11010088471-001)
+- ABC12 (finds ABC123456-XYZ)
+- 88471 (finds 11010088471-001)
+
+Multiple searches: Separate with commas
+Example: 11010, ABC12, 88471
+
+Smart search finds partial matches
+
+Type your search terms below:`;
+      
+      const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
+      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    if (trimmedMessage === '4') {
+      await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType /menu to return to main menu', productId, phoneId);
+      userStates[from].currentMenu = 'completed';
+      return res.sendStatus(200);
+    }
+
+    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, 3, or 4.\n\nType /menu to see the main menu again', productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Handle order query category selection
+  if (userStates[from] && userStates[from].currentMenu === 'order_query') {
+    if (trimmedMessage === '1') {
+      userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
+      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below:`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    if (trimmedMessage === '2') {
+      userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
+      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below:`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    if (trimmedMessage === '3') {
+      userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
+      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below:`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, or 3.\n\nType /menu to return to main menu', productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Handle order number input
+  if (userStates[from] && userStates[from].currentMenu === 'order_number_input') {
+    if (trimmedMessage !== '/menu') {
+      const category = userStates[from].category;
+      const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
+      
+      await processOrderQuery(from, category, orderNumbers, productId, phoneId);
+      userStates[from].currentMenu = 'completed';
+      return res.sendStatus(200);
+    }
+  }
+
+  // Handle smart stock query input
+  if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
+    if (trimmedMessage !== '/menu') {
+      const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
+      await processSmartStockQuery(from, searchTerms, productId, phoneId);
+      return res.sendStatus(200);
+    }
+  }
+
+  return res.sendStatus(200);
+});
+
+// ADD THESE FUNCTIONS to your existing working code:
+
 // Convert column letter to index (A=0, B=1, etc.)
 function columnToIndex(column) {
   let index = 0;
@@ -1003,7 +1046,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      const sheetOrderNumber = row[3] ? row.toString().trim() : ''; // Column D (index 3)
+      const sheetOrderNumber = row[3] ? row[3].toString().trim() : ''; // Column D (index 3)
       if (!sheetOrderNumber) continue;
 
       if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
@@ -1073,7 +1116,7 @@ async function searchOrderStatus(orderNumber, category) {
   }
 }
 
-// Process order query
+// REPLACE your existing processOrderQuery function with this:
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId) {
   try {
     await sendWhatsAppMessage(from, `*Checking ${category} orders...*
@@ -1102,6 +1145,7 @@ Please wait while I search for your order status.`, productId, phoneId);
   }
 }
 
+
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
     await axios.post(
@@ -1123,348 +1167,15 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
   }
 }
 
-// Main webhook handler
-app.post('/webhook', async (req, res) => {
-  try {
-    const message = req.body.message?.text;
-    const from = req.body.user?.phone;
-    const productId = req.body.product_id || req.body.productId;
-    const phoneId = req.body.phone_id || req.body.phoneId;
-
-    if (!message || typeof message !== 'string') {
-      return res.sendStatus(200);
-    }
-
-    const trimmedMessage = message.trim();
-    if (trimmedMessage === '') {
-      return res.sendStatus(200);
-    }
-
-    const lowerMessage = trimmedMessage.toLowerCase();
-
-    // Debug greeting command
-    if (lowerMessage === '/debuggreet') {
-      console.log('DEBUG: Testing greeting for', from);
-      const greeting = await getUserGreeting(from);
-      const debugMessage = greeting 
-        ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
-        : 'No greeting found in sheet';
-      
-      await sendWhatsAppMessage(from, `Greeting debug result: ${debugMessage}`, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    // Debug permission command
-    if (lowerMessage === '/debugperm') {
-      console.log('DEBUG: Testing permissions for', from);
-      const permissions = await getUserBotPermissions(from);
-      const debugMessage = Object.keys(permissions).length > 0 
-        ? `Found permissions: ${JSON.stringify(permissions, null, 2)}`
-        : 'No permissions found in sheet';
-      
-      await sendWhatsAppMessage(from, `Permission debug result: ${debugMessage}`, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    // Main menu with permission-based options
-    if (lowerMessage === '/menu' || trimmedMessage === '/') {
-      console.log('MAIN MENU: Processing for', from);
-      userStates[from] = { currentMenu: 'main' };
-      
-      const greeting = await getUserGreeting(from);
-      console.log('MAIN MENU: Greeting result:', greeting);
-      
-      const finalMessage = await generateDynamicMenu(from, greeting);
-      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    // Direct Stock Query shortcut with permission check
-    if (lowerMessage === '/stock') {
-      console.log('STOCK SHORTCUT: Processing for', from);
-      
-      const permissions = await getUserBotPermissions(from);
-      if (!hasPermission(permissions, 'Stock Query')) {
-        await sendWhatsAppMessage(from, `*ACCESS DENIED*
-
-You don't have permission to access Stock Query.
-
-Type /menu to see available options`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      userStates[from] = { currentMenu: 'smart_stock_query' };
-      
-      const greeting = await getUserGreeting(from);
-      console.log('STOCK SHORTCUT: Greeting result:', greeting);
-      
-      const stockQueryPrompt = `*SMART STOCK QUERY*
-
-Enter any 5+ character code (letters/numbers):
-
-Examples:
-- 11010 (finds 11010088471-001)
-- ABC12 (finds ABC123456-XYZ)  
-- 88471 (finds 11010088471-001)
-
-Multiple searches: Separate with commas
-Example: 11010, ABC12, 88471
-
-Smart search finds partial matches
-
-Type your search terms below:`;
-      
-      const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    // Order shortcuts with permission check
-    if (lowerMessage === '/shirting') {
-      const permissions = await getUserBotPermissions(from);
-      if (!hasPermission(permissions, 'Order Query')) {
-        await sendWhatsAppMessage(from, `*ACCESS DENIED*
-
-You don't have permission to access Order Query.
-
-Type /menu to see available options`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
-      
-      const greeting = await getUserGreeting(from);
-      
-      const shirtingQuery = `*SHIRTING ORDER QUERY*
-
-Please enter your Order Number(s):
-
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
-
-Type your order numbers below:`;
-      
-      const finalMessage = formatGreetingMessage(greeting, shirtingQuery);
-      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    if (lowerMessage === '/jacket') {
-      const permissions = await getUserBotPermissions(from);
-      if (!hasPermission(permissions, 'Order Query')) {
-        await sendWhatsAppMessage(from, `*ACCESS DENIED*
-
-You don't have permission to access Order Query.
-
-Type /menu to see available options`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
-      
-      const greeting = await getUserGreeting(from);
-      
-      const jacketQuery = `*JACKET ORDER QUERY*
-
-Please enter your Order Number(s):
-
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
-
-Type your order numbers below:`;
-      
-      const finalMessage = formatGreetingMessage(greeting, jacketQuery);
-      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    if (lowerMessage === '/trouser') {
-      const permissions = await getUserBotPermissions(from);
-      if (!hasPermission(permissions, 'Order Query')) {
-        await sendWhatsAppMessage(from, `*ACCESS DENIED*
-
-You don't have permission to access Order Query.
-
-Type /menu to see available options`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
-      
-      const greeting = await getUserGreeting(from);
-      
-      const trouserQuery = `*TROUSER ORDER QUERY*
-
-Please enter your Order Number(s):
-
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
-
-Type your order numbers below:`;
-      
-      const finalMessage = formatGreetingMessage(greeting, trouserQuery);
-      await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    // FIXED: Handle menu selections with dynamic permission-based mapping
-    if (userStates[from] && userStates[from].currentMenu === 'main') {
-      const permissions = await getUserBotPermissions(from);
-      
-      // Build dynamic option mapping
-      const availableOptions = [];
-      let optionNumber = 1;
-      
-      if (hasPermission(permissions, 'Ticket')) {
-        availableOptions.push({ number: optionNumber, menu: 'Ticket' });
-        optionNumber++;
-      }
-      
-      if (hasPermission(permissions, 'Order Query')) {
-        availableOptions.push({ number: optionNumber, menu: 'Order Query' });
-        optionNumber++;
-      }
-      
-      if (hasPermission(permissions, 'Stock Query')) {
-        availableOptions.push({ number: optionNumber, menu: 'Stock Query' });
-        optionNumber++;
-      }
-      
-      if (hasPermission(permissions, 'Documents')) {
-        availableOptions.push({ number: optionNumber, menu: 'Documents' });
-        optionNumber++;
-      }
-      
-      // Find which option the user selected
-      const selectedOption = parseInt(trimmedMessage);
-      const matchedOption = availableOptions.find(option => option.number === selectedOption);
-      
-      if (!matchedOption) {
-        await sendWhatsAppMessage(from, 'Invalid option. Please select from the available options.\n\nType /menu to see the main menu again', productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      // Handle the selected option
-      if (matchedOption.menu === 'Ticket') {
-        const ticketMenu = await generateTicketMenu(from);
-        await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
-        userStates[from].currentMenu = 'completed';
-        return res.sendStatus(200);
-      }
-      
-      if (matchedOption.menu === 'Order Query') {
-        userStates[from].currentMenu = 'order_query';
-        const orderQueryMenu = `*ORDER QUERY*
-
-Please select the product category:
-
-1. Shirting
-2. Jacket  
-3. Trouser
-
-Type the number to continue`;
-        
-        await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      if (matchedOption.menu === 'Stock Query') {
-        userStates[from] = { currentMenu: 'smart_stock_query' };
-        
-        const greeting = await getUserGreeting(from);
-        
-        const stockQueryPrompt = `*SMART STOCK QUERY*
-
-Enter any 5+ character code (letters/numbers):
-
-Examples:
-- 11010 (finds 11010088471-001)
-- ABC12 (finds ABC123456-XYZ)
-- 88471 (finds 11010088471-001)
-
-Multiple searches: Separate with commas
-Example: 11010, ABC12, 88471
-
-Smart search finds partial matches
-
-Type your search terms below:`;
-        
-        const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-        await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-        return res.sendStatus(200);
-      }
-      
-      if (matchedOption.menu === 'Documents') {
-        await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType /menu to return to main menu', productId, phoneId);
-        userStates[from].currentMenu = 'completed';
-        return res.sendStatus(200);
-      }
-      
-      return res.sendStatus(200);
-    }
-
-    // Handle order query category selection
-    if (userStates[from] && userStates[from].currentMenu === 'order_query') {
-      if (trimmedMessage === '1') {
-        userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting' };
-        await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below:`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-
-      if (trimmedMessage === '2') {
-        userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket' };
-        await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below:`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-
-      if (trimmedMessage === '3') {
-        userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser' };
-        await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below:`, productId, phoneId);
-        return res.sendStatus(200);
-      }
-
-      await sendWhatsAppMessage(from, 'Invalid option. Please select 1, 2, or 3.\n\nType /menu to return to main menu', productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    // Handle order number input
-    if (userStates[from] && userStates[from].currentMenu === 'order_number_input') {
-      if (trimmedMessage !== '/menu') {
-        const category = userStates[from].category;
-        const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
-        
-        await processOrderQuery(from, category, orderNumbers, productId, phoneId);
-        userStates[from].currentMenu = 'completed';
-        return res.sendStatus(200);
-      }
-    }
-
-    // Handle smart stock query input
-    if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
-      if (trimmedMessage !== '/menu') {
-        const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
-        await processSmartStockQuery(from, searchTerms, productId, phoneId);
-        return res.sendStatus(200);
-      }
-    }
-
-    return res.sendStatus(200);
-
-  } catch (error) {
-    console.error('Webhook error:', error);
-    return res.sendStatus(200);
-  }
-});
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ PERMISSION SYSTEM FULLY IMPLEMENTED:');
-  console.log('✅ Bot Permission Sheet: BOT Permission (Contact Number | Menu | Sub Menu)');
-  console.log('✅ Dynamic menu generation based on user permissions');
-  console.log('✅ Fixed dynamic menu selection mapping');
-  console.log('✅ Access control for all features and shortcuts');
-  console.log('✅ Ticket sub-menu permissions (Help Ticket, Leave Form, Delegation)');
-  console.log('✅ Debug commands: /debuggreet, /debugperm');
+  console.log('✅ CORRECTED FOR SEPARATE COLUMNS:');
+  console.log('✅ Stock: Column A = Quality Code, Column E = Stock Quantity');
+  console.log('✅ Greetings: Column A = Contact, Column B = Name, Column C = Salutation, Column D = Greetings');
+  console.log('✅ Store Permissions: Column A = Contact, Column B = Store Name');
+  console.log('✅ Clean output: LTS8005: 228.25 (no comma-separated data)');
+  console.log('✅ PDF format: Store Name → Quality Code | Stock Quantity');
   console.log('Available shortcuts: /menu, /stock, /shirting, /jacket, /trouser');
+  console.log('Debug: /debuggreet - Test greeting functionality');
 });
