@@ -173,18 +173,10 @@ async function getUserGreeting(phoneNumber) {
       if (!row || row.length < 4) continue;
       
       // FIXED: Extract each column individually
-      let sheetContact = '';
-      if (row[0] !== null && row !== undefined) {
-        if (typeof row === 'number') {
-          sheetContact = row.toString();
-        } else {
-          sheetContact = row.toString().trim();
-        }
-      }
-      
+      const sheetContact = row[0] ? row[0].toString().trim() : '';
       const name = row[1] ? row[1].toString().trim() : '';
       const salutation = row[2] ? row[2].toString().trim() : '';
-      const greetings = row ? row.toString().trim() : '';
+      const greetings = row[3] ? row[3].toString().trim() : '';
       
       console.log(`GREETING: Row ${i} - Contact: "${sheetContact}", Name: "${name}", Salutation: "${salutation}", Greetings: "${greetings}"`);
       
@@ -258,8 +250,8 @@ async function searchStockWithPartialMatch(searchTerms) {
           if (!row || row.length < 5) continue;
           
           // FIXED: Extract individual columns properly
-          const colA = row[0] ? row.toString().trim() : '';
-          const colE = row ? row.toString().trim() : '';
+          const colA = row[0] ? row[0].toString().trim() : '';
+          const colE = row[4] ? row[4].toString().trim() : '';
           
           // Only process if we have both quality code and stock
           if (colA && colE && colA !== '' && colE !== '') {
@@ -515,20 +507,8 @@ async function getUserPermittedStores(phoneNumber) {
       if (!row || row.length < 2) continue;
       
       // FIXED: Extract individual columns
-      let sheetContact = '';
-      let sheetStore = '';
-      
-      if (row[0] !== null && row !== undefined) {
-        if (typeof row === 'number') {
-          sheetContact = row.toString();
-        } else {
-          sheetContact = row.toString().trim();
-        }
-      }
-      
-      if (row[1] !== null && row[1] !== undefined) {
-        sheetStore = row[1].toString().trim();
-      }
+      const sheetContact = row[0] ? row[0].toString().trim() : '';
+      const sheetStore = row[1] ? row[1].toString().trim() : '';
       
       console.log(`STORE: Row ${i} - Contact: "${sheetContact}", Store: "${sheetStore}"`);
       
@@ -994,7 +974,7 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
 
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
-    const response = await axios.post(
+    await axios.post(
       `https://api.maytapi.com/api/${productId}/${phoneId}/sendMessage`,
       {
         to_number: to,
