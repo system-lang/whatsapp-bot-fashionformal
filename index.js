@@ -90,17 +90,17 @@ const COMPLETED_ORDER_FOLDER_ID = '1kgdPdnUK-FsnKZDE5yW6vtRf2H9d3YRE';
 
 // Production stages configuration
 const PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'O', nextStage: 'FUS' },
-  { name: 'FUS', column: 'U', nextStage: 'PAS' },
-  { name: 'PAS', column: 'AA', nextStage: 'MAK' },
-  { name: 'MAK', column: 'AG', nextStage: 'BH' },
-  { name: 'BH', column: 'AS', nextStage: 'BS' },
-  { name: 'BS', column: 'AY', nextStage: 'QC' },
-  { name: 'QC', column: 'BE', nextStage: 'ALT' },
-  { name: 'ALT', column: 'BK', nextStage: 'IRO' },
-  { name: 'IRO', column: 'BT', nextStage: 'Dispatch (Factory)' },
-  { name: 'Dispatch (Factory)', column: 'BZ', nextStage: 'Dispatch (HO)' },
-  { name: 'Dispatch (HO)', column: 'CG', nextStage: 'COMPLETED', dispatchDateColumn: 'CH' }
+  { name: 'CUT', column: 'T', nextStage: 'FUS' },
+  { name: 'FUS', column: 'Z', nextStage: 'PAS' },
+  { name: 'PAS', column: 'AF', nextStage: 'MAK' },
+  { name: 'MAK', column: 'AL', nextStage: 'BH' },
+  { name: 'BH', column: 'AX', nextStage: 'BS' },
+  { name: 'BS', column: 'BD', nextStage: 'QC' },
+  { name: 'QC', column: 'BJ', nextStage: 'ALT' },
+  { name: 'ALT', column: 'BP', nextStage: 'IRO' },
+  { name: 'IRO', column: 'BY', nextStage: 'Dispatch (Factory)' },
+  { name: 'Dispatch (Factory)', column: 'CE', nextStage: 'Dispatch (HO)' },
+  { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CH' }
 ];
 
 // Function to check if stock session has expired
@@ -1118,8 +1118,8 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
 
       if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
         let rawDispatchDate = '';
-        if (row.length > 86 && row[86] !== undefined && row[86] !== null) {
-          rawDispatchDate = row[86];
+        if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
+          rawDispatchDate = row[90];
         }
         
         const formattedDate = formatDateForDisplay(rawDispatchDate);
