@@ -57,6 +57,13 @@ let orderQueryTimestamps = {};
 // Session timeout configuration (40 seconds for stock queries)
 const STOCK_SESSION_TIMEOUT = 40 * 1000; // 40 seconds in milliseconds
 
+// Shortcut commands that can switch contexts immediately
+const SHORTCUT_COMMANDS = [
+  '/menu', '/stock', '/order', '/shirting', '/jacket', '/trouser',
+  '/helpticket', '/delegation', '/',
+  '/debuggreet', '/debugpermissions', '/debugrows'
+];
+
 // Links for different options
 const links = {
   helpTicket: 'https://tinyurl.com/HelpticketFF',
@@ -116,24 +123,17 @@ function updateLastActivity(from) {
   }
 }
 
-// UPDATED: Define valid commands and interactions with session management
+// UPDATED: Define valid commands and interactions with all shortcuts
 function isValidBotInteraction(message, userState) {
   const lowerMessage = message.toLowerCase().trim();
-  
-  // Valid commands that should always be processed
-  const validCommands = [
-    '/menu', '/stock', '/shirting', '/jacket', '/trouser', 
-    '/helpticket', '/delegation', '/', 
-    '/debuggreet', '/debugpermissions', '/debugrows'
-  ];
   
   // Check for debug commands with parameters
   if (lowerMessage.startsWith('/debugorder ')) {
     return true;
   }
   
-  // Check for valid commands - these should ALWAYS work regardless of state
-  if (validCommands.includes(lowerMessage)) {
+  // Check for shortcut commands - these should ALWAYS work regardless of state
+  if (SHORTCUT_COMMANDS.includes(lowerMessage)) {
     return true;
   }
   
@@ -359,6 +359,7 @@ Please contact administrator for access.`;
   
   if (userPermissions.includes('order')) {
     menuItems.push('2. Order Query');
+    shortcuts.push('/order - Direct Order Menu');
     shortcuts.push('/shirting - Shirting Orders');
     shortcuts.push('/jacket - Jacket Orders');
     shortcuts.push('/trouser - Trouser Orders');
@@ -1233,7 +1234,7 @@ Please wait while I search for your order status.`, productId, phoneId);
   }
 }
 
-// MAIN WEBHOOK HANDLER - WITH 40-SECOND SESSION MANAGEMENT
+// MAIN WEBHOOK HANDLER - WITH ALL CONTEXT SWITCHING SHORTCUTS
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -1366,7 +1367,9 @@ Type the number to continue or / to go back`;
     return res.sendStatus(200);
   }
 
-  // Main menu - Only /menu, not /
+  // CONTEXT SWITCHING SHORTCUTS - These can switch from ANY state immediately
+
+  // Main menu
   if (lowerMessage === '/menu') {
     userStates[from] = { currentMenu: 'main', timestamp: Date.now() };
     
@@ -1374,6 +1377,99 @@ Type the number to continue or / to go back`;
     const personalizedMenu = await generatePersonalizedMenu(from);
     
     const finalMessage = formatGreetingMessage(greeting, personalizedMenu);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Direct Stock Query shortcut with 40-second session
+  if (lowerMessage === '/stock') {
+    if (!(await hasFeatureAccess(from, 'stock'))) {
+      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Stock Query.\nContact administrator for access.`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    userStates[from] = { 
+      currentMenu: 'smart_stock_query', 
+      lastActivity: Date.now() // Start 40-second session
+    };
+    
+    const greeting = await getUserGreeting(from);
+    
+    const stockQueryPrompt = `*SMART STOCK QUERY*
+
+Enter any 5+ character code (letters/numbers):
+
+Examples:
+- 11010 (finds 11010088471-001)
+- ABC12 (finds ABC123456-XYZ)  
+- 88471 (finds 11010088471-001)
+
+Multiple searches: Separate with commas
+Example: 11010, ABC12, 88471
+
+Smart search finds partial matches
+
+Type your search terms below or / to go back:`;
+    
+    const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // NEW: Direct Order Query shortcut
+  if (lowerMessage === '/order') {
+    if (!(await hasFeatureAccess(from, 'order'))) {
+      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    userStates[from] = { currentMenu: 'order_query', timestamp: Date.now() };
+    
+    const greeting = await getUserGreeting(from);
+    
+    const orderQueryMenu = `*ORDER QUERY*
+
+Please select the product category:
+
+1. Shirting
+2. Jacket  
+3. Trouser
+
+Type the number to continue or / to go back`;
+    
+    const finalMessage = formatGreetingMessage(greeting, orderQueryMenu);
+    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // Order category shortcuts with security check
+  if (lowerMessage === '/shirting' || lowerMessage === '/jacket' || lowerMessage === '/trouser') {
+    if (!(await hasFeatureAccess(from, 'order'))) {
+      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
+      return res.sendStatus(200);
+    }
+
+    const categoryMap = {
+      '/shirting': 'Shirting',
+      '/jacket': 'Jacket', 
+      '/trouser': 'Trouser'
+    };
+    
+    const category = categoryMap[lowerMessage];
+    userStates[from] = { currentMenu: 'order_number_input', category: category, timestamp: Date.now() };
+    
+    const greeting = await getUserGreeting(from);
+    
+    const orderQuery = `*${category.toUpperCase()} ORDER QUERY*
+
+Please enter your Order Number(s):
+
+Single order: ABC123
+Multiple orders: ABC123, DEF456, GHI789
+
+Type your order numbers below or / to go back:`;
+    
+    const finalMessage = formatGreetingMessage(greeting, orderQuery);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
@@ -1414,73 +1510,6 @@ Type /menu for main menu or / to go back`;
 
     await sendWhatsAppMessage(from, delegationMessage, productId, phoneId);
     delete userStates[from]; // Clear any existing state
-    return res.sendStatus(200);
-  }
-
-  // Direct Stock Query shortcut with 40-second session
-  if (lowerMessage === '/stock') {
-    if (!(await hasFeatureAccess(from, 'stock'))) {
-      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Stock Query.\nContact administrator for access.`, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    userStates[from] = { 
-      currentMenu: 'smart_stock_query', 
-      lastActivity: Date.now() // Start 40-second session
-    };
-    
-    const greeting = await getUserGreeting(from);
-    
-    const stockQueryPrompt = `*SMART STOCK QUERY*
-
-Enter any 5+ character code (letters/numbers):
-
-Examples:
-- 11010 (finds 11010088471-001)
-- ABC12 (finds ABC123456-XYZ)  
-- 88471 (finds 11010088471-001)
-
-Multiple searches: Separate with commas
-Example: 11010, ABC12, 88471
-
-Smart search finds partial matches
-
-Type your search terms below or / to go back:`;
-    
-    const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
-    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-    return res.sendStatus(200);
-  }
-
-  // Order shortcuts with security check
-  if (lowerMessage === '/shirting' || lowerMessage === '/jacket' || lowerMessage === '/trouser') {
-    if (!(await hasFeatureAccess(from, 'order'))) {
-      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
-      return res.sendStatus(200);
-    }
-
-    const categoryMap = {
-      '/shirting': 'Shirting',
-      '/jacket': 'Jacket', 
-      '/trouser': 'Trouser'
-    };
-    
-    const category = categoryMap[lowerMessage];
-    userStates[from] = { currentMenu: 'order_number_input', category: category, timestamp: Date.now() };
-    
-    const greeting = await getUserGreeting(from);
-    
-    const orderQuery = `*${category.toUpperCase()} ORDER QUERY*
-
-Please enter your Order Number(s):
-
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
-
-Type your order numbers below or / to go back:`;
-    
-    const finalMessage = formatGreetingMessage(greeting, orderQuery);
-    await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
@@ -1648,11 +1677,21 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ FIXED: Bot ignores casual messages after 40-second timeout');
+  console.log('✅ FIXED: All context switching shortcuts work from any state');
   console.log('✅ FIXED: 40-second session timer resets with each stock query');
   console.log('✅ FIXED: Commands can switch contexts immediately');
-  console.log('✅ FIXED: Session expires after 40 seconds of inactivity');
+  console.log('✅ FIXED: Bot ignores casual messages appropriately');
   console.log('✅ All existing functions remain intact');
-  console.log('Valid commands: /menu, /stock, /shirting, /jacket, /trouser, /helpticket, /delegation, /');
+  console.log('');
+  console.log('🚀 CONTEXT SWITCHING SHORTCUTS:');
+  console.log('   /menu - Main menu (from anywhere)');
+  console.log('   /stock - Direct stock query (from anywhere)');
+  console.log('   /order - Order query menu (from anywhere)');
+  console.log('   /shirting - Direct shirting orders (from anywhere)');
+  console.log('   /jacket - Direct jacket orders (from anywhere)');
+  console.log('   /trouser - Direct trouser orders (from anywhere)');
+  console.log('   /helpticket - Direct help ticket (from anywhere)');
+  console.log('   /delegation - Direct delegation (from anywhere)');
+  console.log('');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
 });
