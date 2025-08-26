@@ -708,6 +708,85 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
   }
 }
 
+// NEW: Generate Order Results PDF
+async function generateOrderPDF(orderResults, searchTerm, phoneNumber, category) {
+  try {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const filename = `order_results_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
+    const filepath = path.join(__dirname, 'temp', filename);
+    
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const doc = new PDFDocument({
+      margin: 50,
+      size: 'A4'
+    });
+
+    const stream = fs.createWriteStream(filepath);
+    doc.pipe(stream);
+
+    doc.fontSize(18)
+       .font('Helvetica-Bold')
+       .text('ORDER QUERY RESULTS', { align: 'center' });
+    
+    doc.moveDown(0.5);
+    
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
+       .text(`Search Term: ${searchTerm}`)
+       .text(`Category: ${category}`)
+       .text(`Phone: ${phoneNumber}`)
+       .moveDown();
+
+    doc.moveTo(50, doc.y)
+       .lineTo(550, doc.y)
+       .stroke();
+    doc.moveDown(0.5);
+
+    doc.fontSize(11)
+       .font('Helvetica-Bold')
+       .text('Order Number', 50, doc.y, { width: 200, continued: true })
+       .text('Status', 250, doc.y);
+    
+    doc.moveDown(0.2);
+    
+    doc.moveTo(50, doc.y)
+       .lineTo(500, doc.y)
+       .stroke();
+    doc.moveDown(0.3);
+    
+    doc.fontSize(10)
+       .font('Helvetica');
+    
+    orderResults.forEach(result => {
+      doc.text(result.orderNumber, 50, doc.y, { width: 200, continued: true })
+         .text(result.message.replace(/\*/g, ''), 250, doc.y);
+      doc.moveDown(0.3);
+    });
+
+    doc.fontSize(8)
+       .font('Helvetica')
+       .text(`Total Results: ${orderResults.length}`, { align: 'right' });
+
+    doc.end();
+
+    await new Promise((resolve, reject) => {
+      stream.on('finish', resolve);
+      stream.on('error', reject);
+    });
+
+    return { filepath, filename, totalResults: orderResults.length };
+
+  } catch (error) {
+    console.error('Error generating order PDF:', error);
+    throw error;
+  }
+}
+
 // Send file via Railway
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, permittedStores) {
   try {
@@ -728,7 +807,7 @@ async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, perm
       }
     }
 
-    const message = `*Stock Results Generated*
+    const message = `*Results Generated*
 
 File: ${filename}
 Size: ${fileSizeKB} KB
@@ -741,7 +820,7 @@ Click the link above to download
 Works on mobile and desktop
 Link expires in 5 minutes
 
-Search more items within 40 seconds or type /menu for main menu`;
+Type /menu for main menu`;
 
     await sendWhatsAppMessage(to, message, productId, phoneId);
 
@@ -1034,6 +1113,100 @@ function checkProductionStages(row) {
   }
 }
 
+// NEW: Search orders by partial match (for 4-digit search)
+async function searchOrdersByPartialMatch(searchTerm) {
+  const matchingOrders = [];
+  
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    // Search in live sheet first
+    const liveResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: LIVE_SHEET_ID,
+      range: `${LIVE_SHEET_NAME}!A:CL`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const liveRows = liveResponse.data.values;
+    if (liveRows && liveRows.length > 1) {
+      for (let i = 1; i < liveRows.length; i++) {
+        const row = liveRows[i];
+        if (!row || row.length === 0) continue;
+        
+        let orderNumber = '';
+        if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+          orderNumber = row[3].toString().trim();
+        }
+        
+        if (orderNumber && orderNumber.toUpperCase().includes(searchTerm.toUpperCase())) {
+          const stageStatus = checkProductionStages(row);
+          matchingOrders.push({
+            orderNumber: orderNumber,
+            message: stageStatus.message,
+            location: 'Live Sheet (FMS)'
+          });
+        }
+      }
+    }
+
+    // Search in completed orders
+    const folderFiles = await drive.files.list({
+      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: file.id,
+          range: 'A:CL',
+          valueRenderOption: 'UNFORMATTED_VALUE'
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) continue;
+
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+          
+          let orderNumber = '';
+          if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+            orderNumber = row[3].toString().trim();
+          }
+          
+          if (orderNumber && orderNumber.toUpperCase().includes(searchTerm.toUpperCase())) {
+            let rawDispatchDate = '';
+            if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
+              rawDispatchDate = row[90];
+            }
+            
+            const formattedDate = formatDateForDisplay(rawDispatchDate);
+            
+            matchingOrders.push({
+              orderNumber: orderNumber,
+              message: `Order got dispatched on ${formattedDate}`,
+              location: 'Completed Orders'
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Error searching ${file.name}:`, error.message);
+        continue;
+      }
+    }
+
+    return matchingOrders;
+
+  } catch (error) {
+    console.error('Error in searchOrdersByPartialMatch:', error);
+    return [];
+  }
+}
+
 // Search in live sheet with enhanced debugging
 async function searchInLiveSheet(sheets, orderNumber) {
   try {
@@ -1041,7 +1214,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: LIVE_SHEET_ID,
-      range: `${LIVE_SHEET_NAME}!A:CH`,
+      range: `${LIVE_SHEET_NAME}!A:CL`,
       valueRenderOption: 'UNFORMATTED_VALUE'
     });
 
@@ -1096,7 +1269,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'A:CH',
+      range: 'A:CL',
       valueRenderOption: 'UNFORMATTED_VALUE'
     });
 
@@ -1194,7 +1367,7 @@ function isWithinOrderQueryWindow(from) {
   return (now - lastQuery) < twoMinutes;
 }
 
-// UPDATED: Process order query with proper state management
+// UPDATED: Process order query with 4-digit search and PDF support
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId, isFollowUp = false) {
   try {
     if (!isFollowUp) {
@@ -1203,27 +1376,98 @@ async function processOrderQuery(from, category, orderNumbers, productId, phoneI
 Please wait while I search for your order status.`, productId, phoneId);
     }
 
-    let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
-    
-    for (const orderNum of orderNumbers) {
-      const orderStatus = await searchOrderStatus(orderNum, category);
+    let orderResults = [];
+    let exactMatches = [];
+    let partialMatches = [];
+
+    for (const orderInput of orderNumbers) {
+      const cleanInput = orderInput.trim();
       
-      responseMessage += `*Order: ${orderNum}*\n`;
-      responseMessage += `${orderStatus.message}\n\n`;
+      // Check if it's a 4-digit search
+      if (cleanInput.length === 4 && /^\d{4}$/.test(cleanInput)) {
+        // 4-digit search - find all matching orders
+        const matchingOrders = await searchOrdersByPartialMatch(cleanInput);
+        partialMatches = partialMatches.concat(matchingOrders);
+      } else {
+        // Exact order number search
+        const orderStatus = await searchOrderStatus(cleanInput, category);
+        exactMatches.push({
+          orderNumber: cleanInput,
+          message: orderStatus.message,
+          location: orderStatus.location || 'Unknown'
+        });
+      }
     }
-    
-    orderQueryTimestamps[from] = Date.now();
-    
-    responseMessage += `You can query additional ${category} orders within the next 2 minutes by simply typing the order numbers.\n\n`;
-    responseMessage += `Type /menu for main menu or / to go back`;
-    
-    await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
-    
-    userStates[from] = { 
-      currentMenu: 'order_followup', 
-      category: category,
-      timestamp: Date.now()
-    };
+
+    // Combine all results
+    orderResults = [...exactMatches, ...partialMatches];
+
+    if (orderResults.length === 0) {
+      let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
+      responseMessage += `No orders found for the given search terms.\n\n`;
+      responseMessage += `Type /menu for main menu or / to go back`;
+      
+      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+      return;
+    }
+
+    // If 3 or fewer results, show in WhatsApp message
+    if (orderResults.length <= 3) {
+      let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
+      
+      orderResults.forEach(result => {
+        responseMessage += `*Order: ${result.orderNumber}*\n`;
+        responseMessage += `${result.message}\n\n`;
+      });
+      
+      orderQueryTimestamps[from] = Date.now();
+      
+      responseMessage += `You can query additional ${category} orders within the next 2 minutes by simply typing the order numbers.\n\n`;
+      responseMessage += `Type /menu for main menu or / to go back`;
+      
+      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+      
+      userStates[from] = { 
+        currentMenu: 'order_followup', 
+        category: category,
+        timestamp: Date.now()
+      };
+      
+    } else {
+      // More than 3 results - generate PDF
+      try {
+        const searchTerm = orderNumbers.join(', ');
+        const pdfResult = await generateOrderPDF(orderResults, searchTerm, from, category);
+        
+        const summaryMessage = `*Large Results Found*
+
+Search: ${searchTerm}
+Total Results: ${orderResults.length} orders
+PDF Generated: ${pdfResult.filename}
+
+Results are too many for WhatsApp
+
+Type /menu for main menu`;
+        
+        await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
+        await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, []);
+        
+        // Reset state after PDF generation
+        delete userStates[from];
+        
+      } catch (pdfError) {
+        console.error('PDF generation failed:', pdfError);
+        await sendWhatsAppMessage(from, `*Error Generating PDF*
+
+Found ${orderResults.length} results but could not generate PDF.
+Please contact support.
+
+Type /menu for main menu`, productId, phoneId);
+        
+        // Reset state on error
+        delete userStates[from];
+      }
+    }
     
   } catch (error) {
     console.error('Error processing order query:', error);
@@ -1462,12 +1706,13 @@ Type the number to continue or / to go back`;
     
     const orderQuery = `*${category.toUpperCase()} ORDER QUERY*
 
-Please enter your Order Number(s):
+Please enter your Order Number(s) or 4-digit search:
 
-Single order: ABC123
-Multiple orders: ABC123, DEF456, GHI789
+Full order: ABC123DEF456
+4-digit search: 1234 (finds all orders containing 1234)
+Multiple: ABC123, 1234, DEF456
 
-Type your order numbers below or / to go back:`;
+Type your search terms below or / to go back:`;
     
     const finalMessage = formatGreetingMessage(greeting, orderQuery);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -1610,19 +1855,43 @@ Type your search terms below or / to go back:`;
   if (userStates[from] && userStates[from].currentMenu === 'order_query') {
     if (trimmedMessage === '1') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below or / to go back:`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*
+
+Please enter your Order Number(s) or 4-digit search:
+
+Full order: ABC123DEF456
+4-digit search: 1234 (finds all orders containing 1234)
+Multiple: ABC123, 1234, DEF456
+
+Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '2') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below or / to go back:`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*
+
+Please enter your Order Number(s) or 4-digit search:
+
+Full order: ABC123DEF456
+4-digit search: 1234 (finds all orders containing 1234)
+Multiple: ABC123, 1234, DEF456
+
+Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '3') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s):\n\nSingle order: ABC123\nMultiple orders: ABC123, DEF456, GHI789\n\nType your order numbers below or / to go back:`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*
+
+Please enter your Order Number(s) or 4-digit search:
+
+Full order: ABC123DEF456
+4-digit search: 1234 (finds all orders containing 1234)
+Multiple: ABC123, 1234, DEF456
+
+Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
@@ -1681,6 +1950,7 @@ app.listen(PORT, () => {
   console.log('✅ FIXED: 40-second session timer resets with each stock query');
   console.log('✅ FIXED: Commands can switch contexts immediately');
   console.log('✅ FIXED: Bot ignores casual messages appropriately');
+  console.log('✅ NEW: 4-digit order search with PDF generation for >3 results');
   console.log('✅ All existing functions remain intact');
   console.log('');
   console.log('🚀 CONTEXT SWITCHING SHORTCUTS:');
@@ -1692,6 +1962,12 @@ app.listen(PORT, () => {
   console.log('   /trouser - Direct trouser orders (from anywhere)');
   console.log('   /helpticket - Direct help ticket (from anywhere)');
   console.log('   /delegation - Direct delegation (from anywhere)');
+  console.log('');
+  console.log('🔍 ORDER SEARCH FEATURES:');
+  console.log('   - Full order numbers: ABC123DEF456');
+  console.log('   - 4-digit search: 1234 (finds all matching orders)');
+  console.log('   - PDF generation for >3 results');
+  console.log('   - WhatsApp display for ≤3 results');
   console.log('');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
 });
