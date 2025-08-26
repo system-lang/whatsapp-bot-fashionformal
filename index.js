@@ -1113,7 +1113,47 @@ function checkProductionStages(row) {
   }
 }
 
-// NEW: Search orders by partial match (for 4-digit search)
+// NEW: Enhanced order matching function
+function isOrderMatch(orderNumber, searchTerm) {
+  const upperOrderNumber = orderNumber.toUpperCase();
+  const upperSearchTerm = searchTerm.toUpperCase();
+  
+  // Remove common separators for better matching
+  const cleanOrderNumber = upperOrderNumber.replace(/[-_\s]/g, '');
+  const cleanSearchTerm = upperSearchTerm.replace(/[-_\s]/g, '');
+  
+  // Try multiple matching strategies:
+  
+  // 1. Direct substring match (current method)
+  if (upperOrderNumber.includes(upperSearchTerm)) {
+    return true;
+  }
+  
+  // 2. Clean substring match (removes dashes/spaces)
+  if (cleanOrderNumber.includes(cleanSearchTerm)) {
+    return true;
+  }
+  
+  // 3. Pattern match for segments (split by common separators)
+  const orderSegments = upperOrderNumber.split(/[-_\s]/);
+  for (const segment of orderSegments) {
+    if (segment.includes(upperSearchTerm)) {
+      return true;
+    }
+  }
+  
+  // 4. Fuzzy partial match for cases like J300 matching J3005
+  if (upperSearchTerm.length >= 3) {
+    const regex = new RegExp(upperSearchTerm.split('').join('.*?'), 'i');
+    if (regex.test(upperOrderNumber)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// UPDATED: Search orders by partial match with enhanced pattern matching
 async function searchOrdersByPartialMatch(searchTerm) {
   const matchingOrders = [];
   
@@ -1122,6 +1162,11 @@ async function searchOrdersByPartialMatch(searchTerm) {
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const drive = google.drive({ version: 'v3', auth: authClient });
+
+    // Clean search term - remove spaces and convert to uppercase
+    const cleanSearchTerm = searchTerm.trim().toUpperCase();
+    
+    console.log(`🔍 Searching for orders matching: "${cleanSearchTerm}"`);
 
     // Search in live sheet first
     const liveResponse = await sheets.spreadsheets.values.get({
@@ -1132,6 +1177,8 @@ async function searchOrdersByPartialMatch(searchTerm) {
 
     const liveRows = liveResponse.data.values;
     if (liveRows && liveRows.length > 1) {
+      console.log(`Searching ${liveRows.length} rows in live sheet...`);
+      
       for (let i = 1; i < liveRows.length; i++) {
         const row = liveRows[i];
         if (!row || row.length === 0) continue;
@@ -1141,7 +1188,9 @@ async function searchOrdersByPartialMatch(searchTerm) {
           orderNumber = row[3].toString().trim();
         }
         
-        if (orderNumber && orderNumber.toUpperCase().includes(searchTerm.toUpperCase())) {
+        // Enhanced matching logic
+        if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
+          console.log(`✅ Found match in live sheet: ${orderNumber}`);
           const stageStatus = checkProductionStages(row);
           matchingOrders.push({
             orderNumber: orderNumber,
@@ -1157,6 +1206,8 @@ async function searchOrdersByPartialMatch(searchTerm) {
       q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
     });
+
+    console.log(`Searching ${folderFiles.data.files.length} completed order files...`);
 
     for (const file of folderFiles.data.files) {
       try {
@@ -1178,7 +1229,9 @@ async function searchOrdersByPartialMatch(searchTerm) {
             orderNumber = row[3].toString().trim();
           }
           
-          if (orderNumber && orderNumber.toUpperCase().includes(searchTerm.toUpperCase())) {
+          // Enhanced matching logic
+          if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
+            console.log(`✅ Found match in completed orders: ${orderNumber}`);
             let rawDispatchDate = '';
             if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
               rawDispatchDate = row[90];
@@ -1199,6 +1252,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
       }
     }
 
+    console.log(`📊 Total matches found: ${matchingOrders.length}`);
     return matchingOrders;
 
   } catch (error) {
@@ -1236,15 +1290,11 @@ async function searchInLiveSheet(sheets, orderNumber) {
       }
       
       if (sheetOrderNumber) {
-        console.log(`Row ${i}: Found order "${sheetOrderNumber}" (length: ${sheetOrderNumber.length})`);
-        
         const searchOrder = orderNumber.trim().toUpperCase();
         const sheetOrder = sheetOrderNumber.toUpperCase();
         
-        console.log(`Comparing: "${searchOrder}" === "${sheetOrder}"`);
-        
         if (sheetOrder === searchOrder) {
-          console.log(`✅ EXACT MATCH FOUND at row ${i}`);
+          console.log(`✅ EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
           const stageStatus = checkProductionStages(row);
           return {
             found: true,
@@ -1383,13 +1433,17 @@ Please wait while I search for your order status.`, productId, phoneId);
     for (const orderInput of orderNumbers) {
       const cleanInput = orderInput.trim();
       
-      // Check if it's a 4-digit search
-      if (cleanInput.length === 4 && /^\d{4}$/.test(cleanInput)) {
-        // 4-digit search - find all matching orders
+      console.log(`Processing input: "${cleanInput}"`);
+      
+      // Check if it's a short search term (3+ characters for partial matching)
+      if (cleanInput.length >= 3 && cleanInput.length <= 10) {
+        // Partial search - find all matching orders
+        console.log(`Performing partial search for: ${cleanInput}`);
         const matchingOrders = await searchOrdersByPartialMatch(cleanInput);
         partialMatches = partialMatches.concat(matchingOrders);
-      } else {
-        // Exact order number search
+      } else if (cleanInput.length > 10) {
+        // Exact order number search for longer strings
+        console.log(`Performing exact search for: ${cleanInput}`);
         const orderStatus = await searchOrderStatus(cleanInput, category);
         exactMatches.push({
           orderNumber: cleanInput,
@@ -1399,8 +1453,21 @@ Please wait while I search for your order status.`, productId, phoneId);
       }
     }
 
-    // Combine all results
-    orderResults = [...exactMatches, ...partialMatches];
+    // Combine all results and remove duplicates
+    const allResults = [...exactMatches, ...partialMatches];
+    const uniqueResults = [];
+    const seenOrders = new Set();
+    
+    for (const result of allResults) {
+      if (!seenOrders.has(result.orderNumber)) {
+        seenOrders.add(result.orderNumber);
+        uniqueResults.push(result);
+      }
+    }
+    
+    orderResults = uniqueResults;
+
+    console.log(`Final results count: ${orderResults.length}`);
 
     if (orderResults.length === 0) {
       let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
@@ -1706,11 +1773,11 @@ Type the number to continue or / to go back`;
     
     const orderQuery = `*${category.toUpperCase()} ORDER QUERY*
 
-Please enter your Order Number(s) or 4-digit search:
+Please enter your Order Number(s) or search terms:
 
-Full order: ABC123DEF456
-4-digit search: 1234 (finds all orders containing 1234)
-Multiple: ABC123, 1234, DEF456
+Full order: B-J3005Z-1-1
+Partial search: J3005Z, J300, 1234
+Multiple: J3005Z, J300, ABC123
 
 Type your search terms below or / to go back:`;
     
@@ -1857,11 +1924,11 @@ Type your search terms below or / to go back:`;
       userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting', timestamp: Date.now() };
       await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*
 
-Please enter your Order Number(s) or 4-digit search:
+Please enter your Order Number(s) or search terms:
 
-Full order: ABC123DEF456
-4-digit search: 1234 (finds all orders containing 1234)
-Multiple: ABC123, 1234, DEF456
+Full order: B-J3005Z-1-1
+Partial search: J3005Z, J300, 1234
+Multiple: J3005Z, J300, ABC123
 
 Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
@@ -1871,11 +1938,11 @@ Type your search terms below or / to go back:`, productId, phoneId);
       userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket', timestamp: Date.now() };
       await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*
 
-Please enter your Order Number(s) or 4-digit search:
+Please enter your Order Number(s) or search terms:
 
-Full order: ABC123DEF456
-4-digit search: 1234 (finds all orders containing 1234)
-Multiple: ABC123, 1234, DEF456
+Full order: B-J3005Z-1-1
+Partial search: J3005Z, J300, 1234
+Multiple: J3005Z, J300, ABC123
 
 Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
@@ -1885,11 +1952,11 @@ Type your search terms below or / to go back:`, productId, phoneId);
       userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser', timestamp: Date.now() };
       await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*
 
-Please enter your Order Number(s) or 4-digit search:
+Please enter your Order Number(s) or search terms:
 
-Full order: ABC123DEF456
-4-digit search: 1234 (finds all orders containing 1234)
-Multiple: ABC123, 1234, DEF456
+Full order: B-J3005Z-1-1
+Partial search: J3005Z, J300, 1234
+Multiple: J3005Z, J300, ABC123
 
 Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
@@ -1950,7 +2017,8 @@ app.listen(PORT, () => {
   console.log('✅ FIXED: 40-second session timer resets with each stock query');
   console.log('✅ FIXED: Commands can switch contexts immediately');
   console.log('✅ FIXED: Bot ignores casual messages appropriately');
-  console.log('✅ NEW: 4-digit order search with PDF generation for >3 results');
+  console.log('✅ NEW: Enhanced order search with flexible pattern matching');
+  console.log('✅ NEW: Smart matching for J3005Z, J300 → B-J3005Z-1-1, B-J3005Y-1-2, etc.');
   console.log('✅ All existing functions remain intact');
   console.log('');
   console.log('🚀 CONTEXT SWITCHING SHORTCUTS:');
@@ -1963,9 +2031,11 @@ app.listen(PORT, () => {
   console.log('   /helpticket - Direct help ticket (from anywhere)');
   console.log('   /delegation - Direct delegation (from anywhere)');
   console.log('');
-  console.log('🔍 ORDER SEARCH FEATURES:');
-  console.log('   - Full order numbers: ABC123DEF456');
-  console.log('   - 4-digit search: 1234 (finds all matching orders)');
+  console.log('🔍 ENHANCED ORDER SEARCH FEATURES:');
+  console.log('   - Full order numbers: B-J3005Z-1-1');
+  console.log('   - Partial codes: J3005Z → finds B-J3005Z-1-1');
+  console.log('   - Fuzzy matching: J300 → finds B-J3005Y-1-2, B-J3005Y-2-2');
+  console.log('   - Pattern matching with dashes, spaces, underscores');
   console.log('   - PDF generation for >3 results');
   console.log('   - WhatsApp display for ≤3 results');
   console.log('');
