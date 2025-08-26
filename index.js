@@ -54,8 +54,8 @@ let userStates = {};
 // Store order query timestamps for 2-minute window
 let orderQueryTimestamps = {};
 
-// State timeout configuration (40 seconds buffer)
-const STATE_TIMEOUT = 40 * 1000; // 40 seconds in milliseconds
+// Session timeout configuration (40 seconds for stock queries)
+const STOCK_SESSION_TIMEOUT = 40 * 1000; // 40 seconds in milliseconds
 
 // Links for different options
 const links = {
@@ -96,26 +96,27 @@ const PRODUCTION_STAGES = [
   { name: 'Dispatch (HO)', column: 'CG', nextStage: 'COMPLETED', dispatchDateColumn: 'CH' }
 ];
 
-// Function to check if state has expired
-function isStateExpired(userState) {
-  if (!userState || !userState.timestamp) return false;
+// Function to check if stock session has expired
+function isStockSessionExpired(userState) {
+  if (!userState || userState.currentMenu !== 'smart_stock_query' || !userState.lastActivity) {
+    return false;
+  }
   
   const now = Date.now();
-  const stateAge = now - userState.timestamp;
+  const timeSinceLastActivity = now - userState.lastActivity;
   
-  return stateAge > STATE_TIMEOUT;
+  return timeSinceLastActivity > STOCK_SESSION_TIMEOUT;
 }
 
-// Function to clear expired state
-function clearExpiredState(from) {
-  if (userStates[from] && isStateExpired(userStates[from])) {
-    delete userStates[from];
-    return true;
+// Function to update last activity timestamp
+function updateLastActivity(from) {
+  if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
+    userStates[from].lastActivity = Date.now();
+    console.log(`Updated stock session activity for ${from} at ${new Date().toLocaleTimeString()}`);
   }
-  return false;
 }
 
-// UPDATED: Define valid commands and interactions with timeout management
+// UPDATED: Define valid commands and interactions with session management
 function isValidBotInteraction(message, userState) {
   const lowerMessage = message.toLowerCase().trim();
   
@@ -141,8 +142,8 @@ function isValidBotInteraction(message, userState) {
     return true;
   }
   
-  // If user has an active state that hasn't expired, allow their input
-  if (userState && !isStateExpired(userState)) {
+  // Check user state and session expiry
+  if (userState) {
     switch (userState.currentMenu) {
       case 'main':
         return ['1', '2', '3', '4'].includes(message.trim());
@@ -155,6 +156,10 @@ function isValidBotInteraction(message, userState) {
         return message.trim().length > 0;
         
       case 'smart_stock_query':
+        // Check if stock session has expired
+        if (isStockSessionExpired(userState)) {
+          return false; // Session expired, ignore the message
+        }
         return message.trim().length > 0;
         
       default:
@@ -162,7 +167,7 @@ function isValidBotInteraction(message, userState) {
     }
   }
   
-  // If state has expired or doesn't exist, ignore casual messages
+  // If no active state, ignore casual messages
   return false;
 }
 
@@ -735,7 +740,7 @@ Click the link above to download
 Works on mobile and desktop
 Link expires in 5 minutes
 
-Type /menu for main menu`;
+Search more items within 40 seconds or type /menu for main menu`;
 
     await sendWhatsAppMessage(to, message, productId, phoneId);
 
@@ -798,9 +803,12 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// UPDATED: Smart Stock Query with proper state reset
+// UPDATED: Smart Stock Query with 40-second session management
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
+    // Update activity timestamp for this user
+    updateLastActivity(from);
+    
     const validTerms = searchTerms.filter(term => {
       const cleanTerm = term.trim();
       return cleanTerm.length >= 5;
@@ -816,12 +824,12 @@ Examples:
 - ABC12 (finds ABC123456789)
 - 88471 (finds 11010088471-001)
 
-Type /menu for main menu or / to go back`, productId, phoneId);
+You can search again within 40 seconds or type /menu for main menu`, productId, phoneId);
       
-      // Reset state after invalid search
+      // Keep user in stock query state but update activity
       userStates[from] = { 
-        currentMenu: 'completed',
-        timestamp: Date.now()
+        currentMenu: 'smart_stock_query',
+        lastActivity: Date.now()
       };
       return;
     }
@@ -851,14 +859,14 @@ Try:
 - Shorter terms (5+ characters)
 - Both letters and numbers work
 
-Type /menu for main menu or / to go back`;
+You can search again within 40 seconds or type /menu for main menu`;
       
       await sendWhatsAppMessage(from, noResultsMessage, productId, phoneId);
       
-      // Reset state after no results
+      // Keep user in stock query state for 40 more seconds
       userStates[from] = { 
-        currentMenu: 'completed',
-        timestamp: Date.now()
+        currentMenu: 'smart_stock_query',
+        lastActivity: Date.now()
       };
       return;
     }
@@ -902,9 +910,15 @@ Type /menu for main menu or / to go back`;
         responseMessage += `\nReply with store number to get order form\n\n`;
       }
       
-      responseMessage += `Type /menu for main menu or / to go back`;
+      responseMessage += `Search more items within 40 seconds or type /menu for main menu`;
       
       await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+      
+      // Keep user in stock query state for 40 more seconds
+      userStates[from] = { 
+        currentMenu: 'smart_stock_query',
+        lastActivity: Date.now()
+      };
       
     } else {
       try {
@@ -917,10 +931,18 @@ Total Results: ${totalResults} items
 PDF Generated: ${pdfResult.filename}
 
 Results are too long for WhatsApp
-PDF does NOT include order forms—see WhatsApp message for order form link`;
+PDF does NOT include order forms—see WhatsApp message for order form link
+
+Search more items within 40 seconds or type /menu for main menu`;
         
         await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
         await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, permittedStores);
+        
+        // Keep user in stock query state for 40 more seconds
+        userStates[from] = { 
+          currentMenu: 'smart_stock_query',
+          lastActivity: Date.now()
+        };
         
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
@@ -930,14 +952,11 @@ Found ${totalResults} results but could not generate PDF.
 Please contact support.
 
 Type /menu for main menu`, productId, phoneId);
+        
+        // Reset state on error
+        delete userStates[from];
       }
     }
-    
-    // Reset state after successful stock query
-    userStates[from] = { 
-      currentMenu: 'completed',
-      timestamp: Date.now()
-    };
     
   } catch (error) {
     console.error('Error in smart stock query:', error);
@@ -948,11 +967,8 @@ Please try again later.
 
 Type /menu for main menu`, productId, phoneId);
     
-    // Reset state on error too
-    userStates[from] = { 
-      currentMenu: 'completed',
-      timestamp: Date.now()
-    };
+    // Reset state on error
+    delete userStates[from];
   }
 }
 
@@ -1205,7 +1221,7 @@ Please wait while I search for your order status.`, productId, phoneId);
     userStates[from] = { 
       currentMenu: 'order_followup', 
       category: category,
-      timestamp: Date.now()  // Add timestamp
+      timestamp: Date.now()
     };
     
   } catch (error) {
@@ -1213,14 +1229,11 @@ Please wait while I search for your order status.`, productId, phoneId);
     await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType /menu for main menu', productId, phoneId);
     
     // Reset state on error
-    userStates[from] = { 
-      currentMenu: 'completed',
-      timestamp: Date.now()
-    };
+    delete userStates[from];
   }
 }
 
-// MAIN WEBHOOK HANDLER - WITH ENHANCED MESSAGE FILTERING AND STATE MANAGEMENT
+// MAIN WEBHOOK HANDLER - WITH 40-SECOND SESSION MANAGEMENT
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -1236,15 +1249,15 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // UPDATED: Clear expired states before processing
-  const stateCleared = clearExpiredState(from);
-  if (stateCleared) {
-    console.log(`Cleared expired state for ${from}`);
+  // Check for expired stock sessions and clean them up
+  if (userStates[from] && isStockSessionExpired(userStates[from])) {
+    console.log(`Stock session expired for ${from} at ${new Date().toLocaleTimeString()}`);
+    delete userStates[from];
   }
 
-  // NEW: Check if this is a valid bot interaction
+  // Check if this is a valid bot interaction
   if (!isValidBotInteraction(trimmedMessage, userStates[from])) {
-    // IGNORE: Don't respond to random messages like "Hi", "Hello", etc.
+    // IGNORE: Don't respond to random messages
     return res.sendStatus(200);
   }
 
@@ -1381,13 +1394,7 @@ ${links.helpTicket}
 Type /menu for main menu or / to go back`;
 
     await sendWhatsAppMessage(from, helpTicketMessage, productId, phoneId);
-    
-    // Set completed state with timestamp
-    userStates[from] = { 
-      currentMenu: 'completed',
-      timestamp: Date.now()
-    };
-    
+    delete userStates[from]; // Clear any existing state
     return res.sendStatus(200);
   }
 
@@ -1406,24 +1413,21 @@ ${links.delegation}
 Type /menu for main menu or / to go back`;
 
     await sendWhatsAppMessage(from, delegationMessage, productId, phoneId);
-    
-    // Set completed state with timestamp
-    userStates[from] = { 
-      currentMenu: 'completed',
-      timestamp: Date.now()
-    };
-    
+    delete userStates[from]; // Clear any existing state
     return res.sendStatus(200);
   }
 
-  // Direct Stock Query shortcut with security check
+  // Direct Stock Query shortcut with 40-second session
   if (lowerMessage === '/stock') {
     if (!(await hasFeatureAccess(from, 'stock'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Stock Query.\nContact administrator for access.`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-    userStates[from] = { currentMenu: 'smart_stock_query', timestamp: Date.now() };
+    userStates[from] = { 
+      currentMenu: 'smart_stock_query', 
+      lastActivity: Date.now() // Start 40-second session
+    };
     
     const greeting = await getUserGreeting(from);
     
@@ -1510,7 +1514,7 @@ Type your order numbers below or / to go back:`;
 
       const ticketMenu = await generateTicketMenu(from);
       await sendWhatsAppMessage(from, ticketMenu, productId, phoneId);
-      userStates[from] = { currentMenu: 'completed', timestamp: Date.now() };
+      delete userStates[from]; // Clear state after showing tickets
       return res.sendStatus(200);
     }
 
@@ -1533,7 +1537,10 @@ Type the number to continue or / to go back`;
 
     // STOCK QUERY OPTION (3)
     if (trimmedMessage === '3' && (await hasFeatureAccess(from, 'stock'))) {
-      userStates[from] = { currentMenu: 'smart_stock_query', timestamp: Date.now() };
+      userStates[from] = { 
+        currentMenu: 'smart_stock_query', 
+        lastActivity: Date.now() // Start 40-second session
+      };
       
       const greeting = await getUserGreeting(from);
       
@@ -1561,7 +1568,7 @@ Type your search terms below or / to go back:`;
     // DOCUMENT OPTION (4)
     if (trimmedMessage === '4' && (await hasFeatureAccess(from, 'document'))) {
       await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType /menu for main menu or / to go back', productId, phoneId);
-      userStates[from] = { currentMenu: 'completed', timestamp: Date.now() };
+      delete userStates[from]; // Clear state
       return res.sendStatus(200);
     }
 
@@ -1605,7 +1612,7 @@ Type your search terms below or / to go back:`;
     }
   }
 
-  // Handle smart stock query input
+  // Handle smart stock query input with 40-second session management
   if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
     if (trimmedMessage !== '/menu' && trimmedMessage !== '/') {
       const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
@@ -1641,10 +1648,10 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ FIXED: Bot now ignores random messages like "Hi", "Hello"');
-  console.log('✅ Bot only responds to valid commands and menu interactions');
-  console.log('✅ Added 40-second state timeout for better user experience');
-  console.log('✅ Proper state reset when switching between commands');
+  console.log('✅ FIXED: Bot ignores casual messages after 40-second timeout');
+  console.log('✅ FIXED: 40-second session timer resets with each stock query');
+  console.log('✅ FIXED: Commands can switch contexts immediately');
+  console.log('✅ FIXED: Session expires after 40 seconds of inactivity');
   console.log('✅ All existing functions remain intact');
   console.log('Valid commands: /menu, /stock, /shirting, /jacket, /trouser, /helpticket, /delegation, /');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
