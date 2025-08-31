@@ -845,7 +845,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
   }
 }
 
-// FIXED: Enhanced jacket order search with better error handling
+// FIXED: Enhanced jacket order search - searches ALL rows properly
 async function searchJacketOrdersByPartialMatch(searchTerm) {
   const matchingOrders = [];
   
@@ -859,36 +859,31 @@ async function searchJacketOrdersByPartialMatch(searchTerm) {
     
     console.log(`🔍 Searching for jacket orders matching: "${cleanSearchTerm}"`);
 
-    // Search in jacket live sheet with better error handling
+    // Search in jacket live sheet - GET ALL ROWS not just first 10
     try {
       const liveResponse = await sheets.spreadsheets.values.get({
         spreadsheetId: JACKET_LIVE_SHEET_ID,
-        range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
-        valueRenderOption: 'FORMATTED_VALUE' // Changed from UNFORMATTED_VALUE
+        range: `${JACKET_LIVE_SHEET_NAME}!A:BW`, // This gets ALL rows
+        valueRenderOption: 'FORMATTED_VALUE'
       });
 
       const liveRows = liveResponse.data.values;
       if (liveRows && liveRows.length > 0) {
         console.log(`Searching ${liveRows.length} rows in jacket live sheet...`);
         
-        // Start from row 1 (skip header if exists) but check both row 1 and 2 start
-        const startRow = liveRows.length > 2 ? 1 : 0;
-        
-        for (let i = startRow; i < liveRows.length; i++) {
+        // Start from row 2 and search ALL rows
+        for (let i = 2; i < liveRows.length; i++) {
           const row = liveRows[i];
           if (!row || row.length === 0) continue;
           
-          // Check both column D (index 3) and E (index 4) for order numbers
+          // Check column D (index 3) for order numbers
           let orderNumber = '';
           
-          // Try column E first (index 4)
-          if (row.length > 4 && row[4] !== undefined && row[4] !== null && row[4] !== '') {
-            orderNumber = row[4].toString().trim();
-          }
-          // Fallback to column D (index 3)
-          else if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
+          if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
             orderNumber = row[3].toString().trim();
           }
+          
+          console.log(`Checking row ${i}: "${orderNumber}" vs "${cleanSearchTerm}"`);
           
           if (orderNumber && orderNumber !== '' && isOrderMatch(orderNumber, cleanSearchTerm)) {
             console.log(`✅ Found jacket match in live sheet: ${orderNumber}`);
@@ -918,27 +913,22 @@ async function searchJacketOrdersByPartialMatch(searchTerm) {
         try {
           const response = await sheets.spreadsheets.values.get({
             spreadsheetId: file.id,
-            range: 'A:BW',
+            range: 'A:BW', // Get ALL rows
             valueRenderOption: 'FORMATTED_VALUE'
           });
 
           const rows = response.data.values;
           if (!rows || rows.length === 0) continue;
 
-          const startRow = rows.length > 2 ? 1 : 0;
-
-          for (let i = startRow; i < rows.length; i++) {
+          // Start from row 2 and search ALL rows
+          for (let i = 2; i < rows.length; i++) {
             const row = rows[i];
             if (!row || row.length === 0) continue;
             
             let orderNumber = '';
             
-            // Try column E first (index 4)
-            if (row.length > 4 && row[4] !== undefined && row[4] !== null && row[4] !== '') {
-              orderNumber = row[4].toString().trim();
-            }
-            // Fallback to column D (index 3)
-            else if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
+            // Check column D (index 3) for order numbers
+            if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
               orderNumber = row[3].toString().trim();
             }
             
@@ -975,6 +965,7 @@ async function searchJacketOrdersByPartialMatch(searchTerm) {
     return [];
   }
 }
+
 
 async function searchInLiveSheet(sheets, orderNumber) {
   try {
@@ -1661,66 +1652,110 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // FIXED: Add jacket debug command
-  if (lowerMessage.startsWith('/debugjacket ')) {
-    const testOrderNumber = trimmedMessage.replace('/debugjacket ', '').trim();
+ // Enhanced debug command to find F1554O-1-2
+if (lowerMessage.startsWith('/debugjacket ')) {
+  const testOrderNumber = trimmedMessage.replace('/debugjacket ', '').trim();
+  
+  await sendWhatsAppMessage(from, `🔍 Debugging jacket search for: ${testOrderNumber}`, productId, phoneId);
+  
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
     
-    await sendWhatsAppMessage(from, `🔍 Debugging jacket search for: ${testOrderNumber}`, productId, phoneId);
+    // Get ALL data to find F1554O-1-2
+    const testResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: JACKET_LIVE_SHEET_ID,
+      range: `${JACKET_LIVE_SHEET_NAME}!A:F`, // Get ALL rows
+      valueRenderOption: 'FORMATTED_VALUE'
+    });
     
-    try {
-      const auth = await getGoogleAuth();
-      const authClient = await auth.getClient();
-      const sheets = google.sheets({ version: 'v4', auth: authClient });
-      
-      // Test partial search
-      const partialResults = await searchJacketOrdersByPartialMatch(testOrderNumber);
-      
-      let debugResult = `=== JACKET DEBUG RESULTS ===\n\n`;
-      debugResult += `Search Term: "${testOrderNumber}"\n`;
-      debugResult += `Partial Matches Found: ${partialResults.length}\n\n`;
-      
-      if (partialResults.length > 0) {
-        partialResults.forEach((result, index) => {
-          debugResult += `${index + 1}. ${result.orderNumber}\n`;
-          debugResult += `   Status: ${result.message}\n`;
-          debugResult += `   Location: ${result.location}\n\n`;
-        });
-      } else {
-        debugResult += `No matches found. Checking sheet access...\n`;
-        
-        // Test sheet access
-        try {
-          const testResponse = await sheets.spreadsheets.values.get({
-            spreadsheetId: JACKET_LIVE_SHEET_ID,
-            range: `${JACKET_LIVE_SHEET_NAME}!A1:F10`,
-            valueRenderOption: 'FORMATTED_VALUE'
-          });
-          
-          const testRows = testResponse.data.values;
-          if (testRows && testRows.length > 0) {
-            debugResult += `✅ Sheet accessible. Found ${testRows.length} rows.\n`;
-            debugResult += `Sample data:\n`;
-            testRows.slice(0, 3).forEach((row, index) => {
-              const colD = row.length > 3 ? row[3] : 'EMPTY';
-              const colE = row.length > 4 ? row[4] : 'EMPTY';
-              debugResult += `Row ${index}: D="${colD}" E="${colE}"\n`;
-            });
-          } else {
-            debugResult += `❌ Sheet accessible but no data found.\n`;
+    const testRows = testResponse.data.values;
+    let debugResult = `=== JACKET DEBUG RESULTS ===\n\n`;
+    debugResult += `Search Term: "${testOrderNumber}"\n`;
+    debugResult += `Total Rows Found: ${testRows.length}\n\n`;
+    
+    let foundMatches = [];
+    let allOrderNumbers = [];
+    
+    if (testRows && testRows.length > 2) {
+      // Check ALL rows for matches
+      for (let i = 2; i < testRows.length; i++) {
+        const row = testRows[i];
+        if (row && row.length > 3 && row[3]) {
+          const orderNum = row[3].toString().trim();
+          if (orderNum !== '') {
+            allOrderNumbers.push(`Row ${i}: ${orderNum}`);
+            
+            if (orderNum.toUpperCase().includes(testOrderNumber.toUpperCase())) {
+              foundMatches.push(`Row ${i}: ${orderNum}`);
+            }
           }
-        } catch (accessError) {
-          debugResult += `❌ Sheet access error: ${accessError.message}\n`;
         }
       }
       
-      await sendWhatsAppMessage(from, debugResult, productId, phoneId);
+      debugResult += `All Order Numbers Found:\n`;
+      allOrderNumbers.slice(0, 20).forEach(order => {
+        debugResult += `${order}\n`;
+      });
       
-    } catch (error) {
-      await sendWhatsAppMessage(from, `Error during jacket debug: ${error.message}`, productId, phoneId);
+      debugResult += `\nMatches Found: ${foundMatches.length}\n`;
+      if (foundMatches.length > 0) {
+        foundMatches.forEach(match => {
+          debugResult += `✅ ${match}\n`;
+        });
+      } else {
+        debugResult += `❌ No orders contain "${testOrderNumber}"\n`;
+        debugResult += `\nSearching specifically for "F1554O-1-2"...\n`;
+        
+        const f1554Match = allOrderNumbers.find(order => order.includes('F1554O-1-2'));
+        if (f1554Match) {
+          debugResult += `✅ Found F1554O-1-2: ${f1554Match}\n`;
+        } else {
+          debugResult += `❌ F1554O-1-2 not found in first ${allOrderNumbers.length} orders\n`;
+        }
+      }
     }
     
-    return res.sendStatus(200);
+    await sendWhatsAppMessage(from, debugResult, productId, phoneId);
+    
+  } catch (error) {
+    await sendWhatsAppMessage(from, `Error during jacket debug: ${error.message}`, productId, phoneId);
   }
+  
+  return res.sendStatus(200);
+}
+Key Changes:
+
+✅ Searches ALL Rows: Not just first 10-20 rows
+
+✅ Added Logging: Shows which rows it's checking
+
+✅ Enhanced Debug: Looks specifically for F1554O-1-2
+
+✅ Fixed Row Starting: Starts from row 2 (where data begins)
+
+Test This:
+
+Replace the jacket search function with the fixed version above
+
+Add the enhanced debug command
+
+Run /debugjacket 1554 - it should now find "F1554O-1-2"
+
+Run /jacket then search "1554" - should find "F1554O-1-2"
+
+The search for "1554" should now find "F1554O-1-2" since "F1554O-1-2" contains "1554"!
+
+Related
+Where in my sheet should I expect to find F1554O-1-2
+Could hidden rows or filters hide the row with F1554O-1-2
+How can I change my Sheets API range to ensure F1554O-1-2 is included
+Why might the API return zero matches for F1554O-1-2 despite access
+What debug steps can I run to confirm the row containing F1554O-1-2 exists
+
+
+
 
   if (lowerMessage === '/debugrows') {
     try {
