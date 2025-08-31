@@ -105,7 +105,7 @@ const PRODUCTION_STAGES = [
   { name: 'ALT', column: 'BP', nextStage: 'IRO' },
   { name: 'IRO', column: 'BY', nextStage: 'Dispatch (Factory)' },
   { name: 'Dispatch (Factory)', column: 'CE', nextStage: 'Dispatch (HO)' },
-  { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CH' }
+  { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CL' }
 ];
 
 // Jacket Production stages configuration (different from Shirting)
