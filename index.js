@@ -50,28 +50,20 @@ app.get('/download/:filename', (req, res) => {
 
 // Store user states to track which menu they're in
 let userStates = {};
-
-// Store order query timestamps for 2-minute window
 let orderQueryTimestamps = {};
-
-// Session timeout configuration (40 seconds for stock queries)
 const STOCK_SESSION_TIMEOUT = 40 * 1000; // 40 seconds in milliseconds
 
-// Shortcut commands that can switch contexts immediately
 const SHORTCUT_COMMANDS = [
   '/menu', '/stock', '/order', '/shirting', '/jacket', '/trouser',
-  '/helpticket', '/delegation', '/',
-  '/debuggreet', '/debugpermissions', '/debugrows'
+  '/helpticket', '/delegation', '/', '/debuggreet', '/debugpermissions', '/debugrows'
 ];
 
-// Links for different options
 const links = {
   helpTicket: 'https://tinyurl.com/HelpticketFF',
   delegation: 'https://tinyurl.com/DelegationFF',
   leave: 'YOUR_LEAVE_FORM_LINK_HERE'
 };
 
-// Your API Token
 const MAYTAPI_API_TOKEN = '07d75e68-b94f-485b-9e8c-19e707d176ae';
 
 // Google Sheets configuration
@@ -79,11 +71,9 @@ const STOCK_FOLDER_ID = '1QV1cJ9jJZZW2PY24uUY2hefKeUqVHrrf';
 const STORE_PERMISSION_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 const GREETINGS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 const USER_ACCESS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
-
-// Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
 
-// Shirting Order Query Configuration
+// Shirting Order Configuration
 const LIVE_SHEET_ID = '1AxjCHsMxYUmEULaW1LxkW78g0Bv9fp4PkZteJO82uEA';
 const LIVE_SHEET_NAME = 'FMS';
 const COMPLETED_ORDER_FOLDER_ID = '1kgdPdnUK-FsnKZDE5yW6vtRf2H9d3YRE';
@@ -93,7 +83,6 @@ const JACKET_LIVE_SHEET_ID = '1XYXOv6C-aIuMVYDLSMflPZIQL7yJWq5BgnmDAnRMt58';
 const JACKET_LIVE_SHEET_NAME = 'FMS';
 const JACKET_COMPLETED_ORDER_FOLDER_ID = '1GmcGommmEBlP4iNPRA6NC4nbyFokCdY8';
 
-// Shirting Production stages configuration
 const PRODUCTION_STAGES = [
   { name: 'CUT', column: 'T', nextStage: 'FUS' },
   { name: 'FUS', column: 'Z', nextStage: 'PAS' },
@@ -108,7 +97,6 @@ const PRODUCTION_STAGES = [
   { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CL' }
 ];
 
-// Jacket Production stages configuration (different from Shirting)
 const JACKET_PRODUCTION_STAGES = [
   { name: 'CUT', column: 'T', nextStage: 'FUS' },
   { name: 'FUS', column: 'Z', nextStage: 'Prep' },
@@ -122,19 +110,12 @@ const JACKET_PRODUCTION_STAGES = [
   { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
 ];
 
-// Function to check if stock session has expired
+// Helper functions
 function isStockSessionExpired(userState) {
-  if (!userState || userState.currentMenu !== 'smart_stock_query' || !userState.lastActivity) {
-    return false;
-  }
-  
-  const now = Date.now();
-  const timeSinceLastActivity = now - userState.lastActivity;
-  
-  return timeSinceLastActivity > STOCK_SESSION_TIMEOUT;
+  if (!userState || userState.currentMenu !== 'smart_stock_query' || !userState.lastActivity) return false;
+  return (Date.now() - userState.lastActivity) > STOCK_SESSION_TIMEOUT;
 }
 
-// Function to update last activity timestamp
 function updateLastActivity(from) {
   if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
     userStates[from].lastActivity = Date.now();
@@ -142,156 +123,144 @@ function updateLastActivity(from) {
   }
 }
 
-// Define valid commands and interactions with all shortcuts
 function isValidBotInteraction(message, userState) {
   const lowerMessage = message.toLowerCase().trim();
   
-  // Check for debug commands with parameters
-  if (lowerMessage.startsWith('/debugorder ')) {
+  if (lowerMessage.startsWith('/debugorder ') || lowerMessage.startsWith('/debugjacket ') || SHORTCUT_COMMANDS.includes(lowerMessage) || ['1', '2', '3', '4'].includes(message.trim())) {
     return true;
   }
   
-  // Check for shortcut commands - these should ALWAYS work regardless of state
-  if (SHORTCUT_COMMANDS.includes(lowerMessage)) {
-    return true;
-  }
-  
-  // Check for numbered menu selections (1, 2, 3, 4)
-  if (['1', '2', '3', '4'].includes(message.trim())) {
-    return true;
-  }
-  
-  // Check user state and session expiry
   if (userState) {
     switch (userState.currentMenu) {
-      case 'main':
-        return ['1', '2', '3', '4'].includes(message.trim());
-        
-      case 'order_query':
-        return ['1', '2', '3'].includes(message.trim());
-        
+      case 'main': return ['1', '2', '3', '4'].includes(message.trim());
+      case 'order_query': return ['1', '2', '3'].includes(message.trim());
       case 'order_number_input':
-      case 'order_followup':
+      case 'order_followup': return message.trim().length > 0;
+      case 'smart_stock_query': 
+        if (isStockSessionExpired(userState)) return false;
         return message.trim().length > 0;
-        
-      case 'smart_stock_query':
-        // Check if stock session has expired
-        if (isStockSessionExpired(userState)) {
-          return false; // Session expired, ignore the message
-        }
-        return message.trim().length > 0;
-        
-      default:
-        return false;
+      default: return false;
     }
   }
-  
-  // If no active state, ignore casual messages
   return false;
 }
 
-// Google Sheets authentication
 async function getGoogleAuth() {
   try {
     const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    if (!base64Key) {
-      throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable not set');
-    }
+    if (!base64Key) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable not set');
     
     const keyBuffer = Buffer.from(base64Key, 'base64');
     const keyData = JSON.parse(keyBuffer.toString());
     
-    const auth = new google.auth.GoogleAuth({
+    return new google.auth.GoogleAuth({
       credentials: keyData,
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.readonly'
-      ],
+      scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly'],
     });
-    
-    return auth;
   } catch (error) {
     console.error('Error setting up Google auth:', error);
     throw error;
   }
 }
 
-// Format date for display
 function formatDateForDisplay(rawDate) {
-  if (!rawDate || rawDate === '') {
-    return 'Date not available';
-  }
+  if (!rawDate || rawDate === '') return 'Date not available';
   
   const dateStr = rawDate.toString().trim();
-  
-  if (dateStr.includes('/') || dateStr.includes('-') || dateStr.includes(' ')) {
-    return dateStr;
-  }
+  if (dateStr.includes('/') || dateStr.includes('-') || dateStr.includes(' ')) return dateStr;
   
   const dateNum = parseFloat(dateStr);
   if (!isNaN(dateNum) && dateNum > 1000) {
     try {
       const jsDate = new Date((dateNum - 25569) * 86400 * 1000);
-      
       if (!isNaN(jsDate.getTime())) {
         return jsDate.toLocaleString('en-IN', { 
-          timeZone: 'Asia/Kolkata',
-          year: 'numeric',
-          month: '2-digit', 
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
+          timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
         });
       }
-    } catch (error) {
-      // If conversion fails, return original
-    }
+    } catch (error) {}
   }
-  
   return dateStr;
 }
 
-// Format stock quantity - show 15+ if > 15
 function formatStockQuantity(stockValue) {
   if (!stockValue || stockValue === '') return stockValue;
-  
   const numValue = parseFloat(stockValue.toString().trim());
-  if (!isNaN(numValue) && numValue > 15) {
-    return '15+';
-  }
-  
+  if (!isNaN(numValue) && numValue > 15) return '15+';
   return stockValue.toString();
 }
 
-// Helper function to go back one step
 function goBackOneStep(from) {
   if (!userStates[from]) return false;
   
   const currentMenu = userStates[from].currentMenu;
-  
   if (currentMenu === 'order_query') {
     userStates[from] = { currentMenu: 'main', timestamp: Date.now() };
     return true;
   }
-  
   if (currentMenu === 'order_number_input') {
     userStates[from] = { currentMenu: 'order_query', timestamp: Date.now() };
     return true;
   }
-  
   if (currentMenu === 'smart_stock_query') {
     userStates[from] = { currentMenu: 'main', timestamp: Date.now() };
     return true;
   }
+  return false;
+}
+
+function columnToIndex(column) {
+  let index = 0;
+  for (let i = 0; i < column.length; i++) {
+    index = index * 26 + (column.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
+  }
+  return index - 1;
+}
+
+function isWithinOrderQueryWindow(from) {
+  if (!orderQueryTimestamps[from]) return false;
+  const now = Date.now();
+  const lastQuery = orderQueryTimestamps[from];
+  const twoMinutes = 2 * 60 * 1000;
+  return (now - lastQuery) < twoMinutes;
+}
+
+// FIXED: More flexible order matching function for jacket orders
+function isOrderMatch(orderNumber, searchTerm) {
+  const upperOrderNumber = orderNumber.toUpperCase();
+  const upperSearchTerm = searchTerm.toUpperCase();
   
-  if (currentMenu === 'main' || currentMenu === 'completed') {
-    return false;
+  // 1. Direct substring match (most common case)
+  if (upperOrderNumber.includes(upperSearchTerm)) {
+    return true;
+  }
+  
+  // 2. Split by separators and check each part
+  const orderParts = upperOrderNumber.split(/[-_\s#]/);
+  
+  for (const part of orderParts) {
+    // Exact match
+    if (part === upperSearchTerm) {
+      return true;
+    }
+    // Starts with match (minimum 3 characters to avoid false positives)
+    if (upperSearchTerm.length >= 3 && part.startsWith(upperSearchTerm)) {
+      return true;
+    }
+  }
+  
+  // 3. For numeric searches, be more flexible but still avoid false positives
+  if (/^\d+$/.test(upperSearchTerm) && upperSearchTerm.length >= 4) {
+    // For pure numbers, check if it appears as a distinct number sequence
+    const numberRegex = new RegExp(`\\b${upperSearchTerm}\\d*\\b`);
+    if (numberRegex.test(upperOrderNumber)) {
+      return true;
+    }
   }
   
   return false;
 }
 
-// Get user permissions from BOT Permission sheet
 async function getUserPermissions(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
@@ -305,17 +274,11 @@ async function getUserPermissions(phoneNumber) {
     });
 
     const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return [];
-    }
+    if (!rows || rows.length === 0) return [];
 
     const phoneVariations = [
-      phoneNumber,
-      phoneNumber.replace(/^\+91/, ''),
-      phoneNumber.replace(/^\+/, ''),
-      phoneNumber.replace(/^91/, ''),
-      phoneNumber.replace(/^0/, ''),
-      phoneNumber.slice(-10)
+      phoneNumber, phoneNumber.replace(/^\+91/, ''), phoneNumber.replace(/^\+/, ''),
+      phoneNumber.replace(/^91/, ''), phoneNumber.replace(/^0/, ''), phoneNumber.slice(-10)
     ];
 
     for (let i = 1; i < rows.length; i++) {
@@ -327,143 +290,73 @@ async function getUserPermissions(phoneNumber) {
 
       for (const phoneVar of phoneVariations) {
         if (phoneVar === sheetPhone) {
-          const features = featuresString.split(',').map(f => f.trim().toLowerCase());
-          return features;
+          return featuresString.split(',').map(f => f.trim().toLowerCase());
         }
       }
     }
-
     return [];
-
   } catch (error) {
     console.error('Error getting user permissions:', error);
     return [];
   }
 }
 
-// Check if user has access to specific feature
 async function hasFeatureAccess(phoneNumber, feature) {
   const userPermissions = await getUserPermissions(phoneNumber);
   return userPermissions.includes(feature.toLowerCase());
 }
 
-// Generate personalized menu with new shortcuts
-async function generatePersonalizedMenu(phoneNumber) {
-  const userPermissions = await getUserPermissions(phoneNumber);
-  
-  if (userPermissions.length === 0) {
-    return `*ACCESS DENIED*
+async function getUserPermittedStores(phoneNumber) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-You do not have permission to use this bot.
-Please contact administrator for access.`;
-  }
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STORE_PERMISSION_SHEET_ID,
+      range: 'store permission!A:B',
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
 
-  let menuItems = [];
-  let shortcuts = [];
-
-  const hasAnyTicketAccess = userPermissions.some(perm => 
-    ['help_ticket', 'delegation', 'leave_form'].includes(perm)
-  );
-
-  if (hasAnyTicketAccess) {
-    menuItems.push('1. Ticket');
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) return [];
     
-    if (userPermissions.includes('help_ticket')) {
-      shortcuts.push('/helpticket - Direct Help Ticket');
+    const permittedStores = [];
+    const phoneVariations = [
+      phoneNumber, phoneNumber.replace(/^\+91/, ''), phoneNumber.replace(/^\+/, ''),
+      phoneNumber.replace(/^91/, ''), phoneNumber.replace(/^0/, ''), phoneNumber.slice(-10)
+    ];
+    
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length < 2) continue;
+      
+      const sheetContact = (row[0] || '').toString().trim();
+      const sheetStore = (row[1] || '').toString().trim();
+      
+      for (const phoneVar of phoneVariations) {
+        if (phoneVar === sheetContact) {
+          if (sheetStore && sheetStore !== '') {
+            permittedStores.push(sheetStore);
+          }
+          break;
+        }
+      }
     }
-    if (userPermissions.includes('delegation')) {
-      shortcuts.push('/delegation - Direct Delegation');
-    }
+    return permittedStores;
+  } catch (error) {
+    console.error('Error getting permitted stores:', error);
+    return [];
   }
-  
-  if (userPermissions.includes('order')) {
-    menuItems.push('2. Order Query');
-    shortcuts.push('/order - Direct Order Menu');
-    shortcuts.push('/shirting - Shirting Orders');
-    shortcuts.push('/jacket - Jacket Orders');
-    shortcuts.push('/trouser - Trouser Orders');
-  }
-  
-  if (userPermissions.includes('stock')) {
-    menuItems.push('3. Stock Query');
-    shortcuts.push('/stock - Direct Stock Query');
-  }
-  
-  if (userPermissions.includes('document')) {
-    menuItems.push('4. Document');
-  }
-
-  if (menuItems.length === 0) {
-    return `*ACCESS DENIED*
-
-No valid permissions found.
-Please contact administrator for access.`;
-  }
-
-  let menu = `*MAIN MENU*
-
-Please select an option:
-
-${menuItems.join('\n')}`;
-
-  if (shortcuts.length > 0) {
-    menu += `\n\n*SHORTCUTS:*\n${shortcuts.join('\n')}`;
-  }
-
-  menu += `\n\nType the number, use shortcuts, or / to go back`;
-
-  return menu;
 }
 
-// Generate personalized ticket menu based on specific permissions
-async function generateTicketMenu(phoneNumber) {
-  const userPermissions = await getUserPermissions(phoneNumber);
-  
-  let ticketOptions = [];
-  
-  if (userPermissions.includes('help_ticket')) {
-    ticketOptions.push(`*HELP TICKET*\n${links.helpTicket}`);
-  }
-  
-  if (userPermissions.includes('delegation')) {
-    ticketOptions.push(`*DELEGATION*\n${links.delegation}`);
-  }
-  
-  if (userPermissions.includes('leave_form')) {
-    ticketOptions.push(`*LEAVE FORM*\n${links.leave}`);
-  }
-
-  if (ticketOptions.length === 0) {
-    return `*ACCESS DENIED*
-
-You don't have permission to access any ticket options.
-Contact administrator for access.
-
-Type /menu to return to main menu`;
-  }
-
-  return `*TICKET OPTIONS*
-
-Click the links below to access forms directly:
-
-${ticketOptions.join('\n\n')}
-
-Type /menu to return to main menu or / to go back`;
-}
-
-// Get user greeting from separate columns
 async function getUserGreeting(phoneNumber) {
   try {
     const auth = await getGoogleAuth();
     const authClient = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    const attempts = [
-      'Greetings!A:D',
-      "'Greetings'!A:D", 
-      'Sheet2!A:D',
-      'A:D'
-    ];
+    const attempts = ['Greetings!A:D', "'Greetings'!A:D", 'Sheet2!A:D', 'A:D'];
     
     let rows = null;
     for (const range of attempts) {
@@ -478,22 +371,14 @@ async function getUserGreeting(phoneNumber) {
           rows = response.data.values;
           break;
         }
-      } catch (rangeError) {
-        continue;
-      }
+      } catch (rangeError) { continue; }
     }
     
-    if (!rows || rows.length <= 1) {
-      return null;
-    }
+    if (!rows || rows.length <= 1) return null;
 
     const phoneVariations = [
-      phoneNumber,
-      phoneNumber.replace(/^\+91/, ''),
-      phoneNumber.replace(/^\+/, ''),
-      phoneNumber.replace(/^91/, ''),
-      phoneNumber.replace(/^0/, ''),
-      phoneNumber.slice(-10)
+      phoneNumber, phoneNumber.replace(/^\+91/, ''), phoneNumber.replace(/^\+/, ''),
+      phoneNumber.replace(/^91/, ''), phoneNumber.replace(/^0/, ''), phoneNumber.slice(-10)
     ];
     
     for (let i = 1; i < rows.length; i++) {
@@ -511,25 +396,161 @@ async function getUserGreeting(phoneNumber) {
         }
       }
     }
-    
     return null;
-    
   } catch (error) {
     console.error('Error getting greeting:', error);
     return null;
   }
 }
 
-// Format greeting message
 function formatGreetingMessage(greeting, mainMessage) {
-  if (!greeting || !greeting.name || !greeting.salutation || !greeting.greetings) {
-    return mainMessage;
-  }
-  
+  if (!greeting || !greeting.name || !greeting.salutation || !greeting.greetings) return mainMessage;
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// Handle separate columns for stock data with duplicate removal and max quantity selection
+async function generatePersonalizedMenu(phoneNumber) {
+  const userPermissions = await getUserPermissions(phoneNumber);
+  
+  if (userPermissions.length === 0) {
+    return `*ACCESS DENIED*\n\nYou do not have permission to use this bot.\nPlease contact administrator for access.`;
+  }
+
+  let menuItems = [];
+  let shortcuts = [];
+
+  const hasAnyTicketAccess = userPermissions.some(perm => 
+    ['help_ticket', 'delegation', 'leave_form'].includes(perm)
+  );
+
+  if (hasAnyTicketAccess) {
+    menuItems.push('1. Ticket');
+    if (userPermissions.includes('help_ticket')) shortcuts.push('/helpticket - Direct Help Ticket');
+    if (userPermissions.includes('delegation')) shortcuts.push('/delegation - Direct Delegation');
+  }
+  
+  if (userPermissions.includes('order')) {
+    menuItems.push('2. Order Query');
+    shortcuts.push('/order - Direct Order Menu', '/shirting - Shirting Orders', '/jacket - Jacket Orders', '/trouser - Trouser Orders');
+  }
+  
+  if (userPermissions.includes('stock')) {
+    menuItems.push('3. Stock Query');
+    shortcuts.push('/stock - Direct Stock Query');
+  }
+  
+  if (userPermissions.includes('document')) menuItems.push('4. Document');
+
+  if (menuItems.length === 0) {
+    return `*ACCESS DENIED*\n\nNo valid permissions found.\nPlease contact administrator for access.`;
+  }
+
+  let menu = `*MAIN MENU*\n\nPlease select an option:\n\n${menuItems.join('\n')}`;
+  if (shortcuts.length > 0) menu += `\n\n*SHORTCUTS:*\n${shortcuts.join('\n')}`;
+  menu += `\n\nType the number, use shortcuts, or / to go back`;
+  return menu;
+}
+
+async function generateTicketMenu(phoneNumber) {
+  const userPermissions = await getUserPermissions(phoneNumber);
+  let ticketOptions = [];
+  
+  if (userPermissions.includes('help_ticket')) ticketOptions.push(`*HELP TICKET*\n${links.helpTicket}`);
+  if (userPermissions.includes('delegation')) ticketOptions.push(`*DELEGATION*\n${links.delegation}`);
+  if (userPermissions.includes('leave_form')) ticketOptions.push(`*LEAVE FORM*\n${links.leave}`);
+
+  if (ticketOptions.length === 0) {
+    return `*ACCESS DENIED*\n\nYou don't have permission to access any ticket options.\nContact administrator for access.\n\nType /menu to return to main menu`;
+  }
+
+  return `*TICKET OPTIONS*\n\nClick the links below to access forms directly:\n\n${ticketOptions.join('\n\n')}\n\nType /menu to return to main menu or / to go back`;
+}
+
+function checkProductionStages(row) {
+  try {
+    let lastCompletedStage = null;
+    let hasAnyStage = false;
+
+    for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
+      const stage = PRODUCTION_STAGES[i];
+      const columnIndex = columnToIndex(stage.column);
+      
+      let cellValue = '';
+      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
+        cellValue = row[columnIndex].toString().trim();
+      }
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+        lastCompletedStage = stage;
+        hasAnyStage = true;
+      }
+    }
+
+    if (!hasAnyStage) return { message: 'Order is currently under process' };
+
+    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
+      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
+      let rawDispatchDate = '';
+      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
+        rawDispatchDate = row[dispatchDateIndex];
+      }
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
+    }
+
+    if (lastCompletedStage) {
+      return { message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` };
+    }
+
+    return { message: 'Error determining order status' };
+  } catch (error) {
+    console.error('Error checking production stages:', error);
+    return { message: 'Error checking order status' };
+  }
+}
+
+function checkJacketProductionStages(row) {
+  try {
+    let lastCompletedStage = null;
+    let hasAnyStage = false;
+
+    for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
+      const stage = JACKET_PRODUCTION_STAGES[i];
+      const columnIndex = columnToIndex(stage.column);
+      
+      let cellValue = '';
+      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
+        cellValue = row[columnIndex].toString().trim();
+      }
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+        lastCompletedStage = stage;
+        hasAnyStage = true;
+      }
+    }
+
+    if (!hasAnyStage) return { message: 'Order is currently under process' };
+
+    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
+      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
+      let rawDispatchDate = '';
+      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
+        rawDispatchDate = row[dispatchDateIndex];
+      }
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
+    }
+
+    if (lastCompletedStage) {
+      return { message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` };
+    }
+
+    return { message: 'Error determining order status' };
+  } catch (error) {
+    console.error('Error checking jacket production stages:', error);
+    return { message: 'Error checking order status' };
+  }
+}
+
 async function searchStockWithPartialMatch(searchTerms) {
   const results = {};
   
@@ -556,9 +577,7 @@ async function searchStockWithPartialMatch(searchTerms) {
         });
 
         const rows = response.data.values;
-        if (!rows || rows.length === 0) {
-          continue;
-        }
+        if (!rows || rows.length === 0) continue;
         
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
@@ -614,7 +633,638 @@ async function searchStockWithPartialMatch(searchTerms) {
   }
 }
 
-// Generate PDF with proper format
+async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
+  try {
+    updateLastActivity(from);
+    
+    const validTerms = searchTerms.filter(term => {
+      const cleanTerm = term.trim();
+      return cleanTerm.length >= 5;
+    });
+    
+    if (validTerms.length === 0) {
+      await sendWhatsAppMessage(from, `*Invalid Search*\n\nPlease provide at least 5 characters for searching.\n\nExamples:\n- 11010 (finds 11010088471-001)\n- ABC12 (finds ABC123456789)\n- 88471 (finds 11010088471-001)\n\nYou can search again within 40 seconds or type /menu for main menu`, productId, phoneId);
+      
+      userStates[from] = { 
+        currentMenu: 'smart_stock_query',
+        lastActivity: Date.now()
+      };
+      return;
+    }
+    
+    await sendWhatsAppMessage(from, `*Smart Stock Search*\n\nSearching for: ${validTerms.join(', ')}\n\nPlease wait while I search all stock sheets...`, productId, phoneId);
+
+    const searchResults = await searchStockWithPartialMatch(validTerms);
+    const permittedStores = await getUserPermittedStores(from);
+    
+    let totalResults = 0;
+    validTerms.forEach(term => {
+      totalResults += (searchResults[term] || []).length;
+    });
+    
+    if (totalResults === 0) {
+      const noResultsMessage = `*No Results Found*\n\nNo stock items found containing:\n${validTerms.map(term => `- ${term}`).join('\n')}\n\nTry:\n- Different search combinations\n- Shorter terms (5+ characters)\n- Both letters and numbers work\n\nYou can search again within 40 seconds or type /menu for main menu`;
+      
+      await sendWhatsAppMessage(from, noResultsMessage, productId, phoneId);
+      
+      userStates[from] = { 
+        currentMenu: 'smart_stock_query',
+        lastActivity: Date.now()
+      };
+      return;
+    }
+    
+    if (totalResults <= 15) {
+      let responseMessage = `*Smart Search Results*\n\n`;
+      
+      const storeGroups = {};
+      validTerms.forEach(term => {
+        const termResults = searchResults[term] || [];
+        termResults.forEach(result => {
+          if (!storeGroups[result.store]) {
+            storeGroups[result.store] = [];
+          }
+          storeGroups[result.store].push(result);
+        });
+      });
+      
+      Object.entries(storeGroups).forEach(([store, items]) => {
+        responseMessage += `*${store}*\n`;
+        items.forEach(item => {
+          const formattedStock = formatStockQuantity(item.stock);
+          responseMessage += `${item.qualityCode}: ${formattedStock}\n`;
+        });
+        responseMessage += `\n`;
+      });
+      
+      responseMessage += `*Place Orders*\n\n`;
+
+      if (permittedStores.length === 0) {
+        responseMessage += `No store permissions found\nContact admin for access\n\n`;
+      } else if (permittedStores.length === 1) {
+        const cleanPhone = from.replace(/^\+/, '');
+        const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
+        responseMessage += `*Your Store:* ${permittedStores}\n${formUrl}\n\n`;
+      } else {
+        responseMessage += `*Your Stores:*\n`;
+        permittedStores.forEach((store, index) => {
+          responseMessage += `${index + 1}. ${store}\n`;
+        });
+        responseMessage += `\nReply with store number to get order form\n\n`;
+      }
+      
+      responseMessage += `Search more items within 40 seconds or type /menu for main menu`;
+      
+      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
+      
+      userStates[from] = { 
+        currentMenu: 'smart_stock_query',
+        lastActivity: Date.now()
+      };
+      
+    } else {
+      try {
+        const pdfResult = await generateStockPDF(searchResults, validTerms, from, permittedStores);
+        
+        const summaryMessage = `*Large Results Found*\n\nSearch: ${validTerms.join(', ')}\nTotal Results: ${totalResults} items\nPDF Generated: ${pdfResult.filename}\n\nResults are too long for WhatsApp\nPDF does NOT include order forms—see WhatsApp message for order form link\n\nSearch more items within 40 seconds or type /menu for main menu`;
+        
+        await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
+        await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, permittedStores);
+        
+        userStates[from] = { 
+          currentMenu: 'smart_stock_query',
+          lastActivity: Date.now()
+        };
+        
+      } catch (pdfError) {
+        console.error('PDF generation failed:', pdfError);
+        await sendWhatsAppMessage(from, `*Error Generating PDF*\n\nFound ${totalResults} results but could not generate PDF.\nPlease contact support.\n\nType /menu for main menu`, productId, phoneId);
+        
+        delete userStates[from];
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error in smart stock query:', error);
+    await sendWhatsAppMessage(from, `*Search Error*\n\nUnable to complete search.\nPlease try again later.\n\nType /menu for main menu`, productId, phoneId);
+    
+    delete userStates[from];
+  }
+}
+
+async function searchOrdersByPartialMatch(searchTerm) {
+  const matchingOrders = [];
+  
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const cleanSearchTerm = searchTerm.trim().toUpperCase();
+    
+    // Search in live sheet first
+    const liveResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: LIVE_SHEET_ID,
+      range: `${LIVE_SHEET_NAME}!A:CL`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const liveRows = liveResponse.data.values;
+    if (liveRows && liveRows.length > 1) {
+      for (let i = 1; i < liveRows.length; i++) {
+        const row = liveRows[i];
+        if (!row || row.length === 0) continue;
+        
+        let orderNumber = '';
+        if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+          orderNumber = row[3].toString().trim();
+        }
+        
+        if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
+          const stageStatus = checkProductionStages(row);
+          matchingOrders.push({
+            orderNumber: orderNumber,
+            message: stageStatus.message,
+            location: 'Live Sheet (Shirting FMS)'
+          });
+        }
+      }
+    }
+
+    // Search in completed orders
+    const folderFiles = await drive.files.list({
+      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: file.id,
+          range: 'A:CL',
+          valueRenderOption: 'UNFORMATTED_VALUE'
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) continue;
+
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+          
+          let orderNumber = '';
+          if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+            orderNumber = row[3].toString().trim();
+          }
+          
+          if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
+            let rawDispatchDate = '';
+            if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
+              rawDispatchDate = row[90];
+            }
+            
+            const formattedDate = formatDateForDisplay(rawDispatchDate);
+            
+            matchingOrders.push({
+              orderNumber: orderNumber,
+              message: `Order got dispatched on ${formattedDate}`,
+              location: 'Completed Orders (Shirting)'
+            });
+          }
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return matchingOrders;
+  } catch (error) {
+    console.error('Error in searchOrdersByPartialMatch:', error);
+    return [];
+  }
+}
+
+// FIXED: Enhanced jacket order search with better error handling
+async function searchJacketOrdersByPartialMatch(searchTerm) {
+  const matchingOrders = [];
+  
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const cleanSearchTerm = searchTerm.trim().toUpperCase();
+    
+    console.log(`🔍 Searching for jacket orders matching: "${cleanSearchTerm}"`);
+
+    // Search in jacket live sheet with better error handling
+    try {
+      const liveResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: JACKET_LIVE_SHEET_ID,
+        range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
+        valueRenderOption: 'FORMATTED_VALUE' // Changed from UNFORMATTED_VALUE
+      });
+
+      const liveRows = liveResponse.data.values;
+      if (liveRows && liveRows.length > 0) {
+        console.log(`Searching ${liveRows.length} rows in jacket live sheet...`);
+        
+        // Start from row 1 (skip header if exists) but check both row 1 and 2 start
+        const startRow = liveRows.length > 2 ? 1 : 0;
+        
+        for (let i = startRow; i < liveRows.length; i++) {
+          const row = liveRows[i];
+          if (!row || row.length === 0) continue;
+          
+          // Check both column D (index 3) and E (index 4) for order numbers
+          let orderNumber = '';
+          
+          // Try column E first (index 4)
+          if (row.length > 4 && row[4] !== undefined && row[4] !== null && row[4] !== '') {
+            orderNumber = row[4].toString().trim();
+          }
+          // Fallback to column D (index 3)
+          else if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
+            orderNumber = row[3].toString().trim();
+          }
+          
+          if (orderNumber && orderNumber !== '' && isOrderMatch(orderNumber, cleanSearchTerm)) {
+            console.log(`✅ Found jacket match in live sheet: ${orderNumber}`);
+            const stageStatus = checkJacketProductionStages(row);
+            matchingOrders.push({
+              orderNumber: orderNumber,
+              message: stageStatus.message,
+              location: 'Live Sheet (Jacket FMS)'
+            });
+          }
+        }
+      }
+    } catch (liveSheetError) {
+      console.error('Error searching jacket live sheet:', liveSheetError.message);
+    }
+
+    // Search in jacket completed orders
+    try {
+      const folderFiles = await drive.files.list({
+        q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+        fields: 'files(id, name)'
+      });
+
+      console.log(`Searching ${folderFiles.data.files.length} jacket completed order files...`);
+
+      for (const file of folderFiles.data.files) {
+        try {
+          const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: file.id,
+            range: 'A:BW',
+            valueRenderOption: 'FORMATTED_VALUE'
+          });
+
+          const rows = response.data.values;
+          if (!rows || rows.length === 0) continue;
+
+          const startRow = rows.length > 2 ? 1 : 0;
+
+          for (let i = startRow; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
+            
+            let orderNumber = '';
+            
+            // Try column E first (index 4)
+            if (row.length > 4 && row[4] !== undefined && row[4] !== null && row[4] !== '') {
+              orderNumber = row[4].toString().trim();
+            }
+            // Fallback to column D (index 3)
+            else if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
+              orderNumber = row[3].toString().trim();
+            }
+            
+            if (orderNumber && orderNumber !== '' && isOrderMatch(orderNumber, cleanSearchTerm)) {
+              console.log(`✅ Found jacket match in completed orders: ${orderNumber}`);
+              let rawDispatchDate = '';
+              if (row.length > 74 && row[74] !== undefined && row[74] !== null) {
+                rawDispatchDate = row[74];
+              }
+              
+              const formattedDate = formatDateForDisplay(rawDispatchDate);
+              
+              matchingOrders.push({
+                orderNumber: orderNumber,
+                message: `Order got dispatched on ${formattedDate}`,
+                location: 'Completed Orders (Jacket)'
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error searching jacket file ${file.name}:`, error.message);
+          continue;
+        }
+      }
+    } catch (folderError) {
+      console.error('Error accessing jacket completed order folder:', folderError.message);
+    }
+
+    console.log(`📊 Total jacket matches found: ${matchingOrders.length}`);
+    return matchingOrders;
+
+  } catch (error) {
+    console.error('Error in searchJacketOrdersByPartialMatch:', error);
+    return [];
+  }
+}
+
+async function searchInLiveSheet(sheets, orderNumber) {
+  try {
+    console.log(`=== SEARCHING FOR SHIRTING ORDER: ${orderNumber} ===`);
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: LIVE_SHEET_ID,
+      range: `${LIVE_SHEET_NAME}!A:CL`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('ERROR: No rows returned from shirting live sheet');
+      return { found: false };
+    }
+
+    console.log(`Shirting live sheet has ${rows.length} total rows`);
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      let sheetOrderNumber = '';
+      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+        sheetOrderNumber = row[3].toString().trim();
+      }
+      
+      if (sheetOrderNumber) {
+        const searchOrder = orderNumber.trim().toUpperCase();
+        const sheetOrder = sheetOrderNumber.toUpperCase();
+        
+        if (sheetOrder === searchOrder) {
+          console.log(`✅ SHIRTING EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
+          const stageStatus = checkProductionStages(row);
+          return {
+            found: true,
+            message: stageStatus.message,
+            location: 'Live Sheet (Shirting FMS)'
+          };
+        }
+      }
+    }
+
+    console.log(`❌ Shirting Order ${orderNumber} not found in any of the ${rows.length} rows`);
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching shirting live sheet:', error.message);
+    return { found: false };
+  }
+}
+
+// FIXED: Enhanced exact jacket search
+async function searchInJacketLiveSheet(sheets, orderNumber) {
+  try {
+    console.log(`=== SEARCHING JACKET ORDER: ${orderNumber} ===`);
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: JACKET_LIVE_SHEET_ID,
+      range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
+      valueRenderOption: 'FORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('ERROR: No rows returned from jacket live sheet');
+      return { found: false };
+    }
+
+    console.log(`Jacket live sheet has ${rows.length} total rows`);
+
+    // Try different starting points as sheets may have different header configurations
+    const startRow = rows.length > 2 ? 1 : 0;
+
+    for (let i = startRow; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      let sheetOrderNumber = '';
+      
+      // Try multiple columns for order numbers
+      if (row.length > 4 && row[4] !== undefined && row[4] !== null && row[4] !== '') {
+        sheetOrderNumber = row[4].toString().trim(); // Column E (index 4)
+      } else if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
+        sheetOrderNumber = row[3].toString().trim(); // Column D (index 3)
+      }
+      
+      if (sheetOrderNumber && sheetOrderNumber !== '') {
+        const searchOrder = orderNumber.trim().toUpperCase();
+        const sheetOrder = sheetOrderNumber.toUpperCase();
+        
+        if (sheetOrder === searchOrder) {
+          console.log(`✅ JACKET EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
+          const stageStatus = checkJacketProductionStages(row);
+          return {
+            found: true,
+            message: stageStatus.message,
+            location: 'Live Sheet (Jacket FMS)'
+          };
+        }
+      }
+    }
+
+    console.log(`❌ Jacket Order ${orderNumber} not found in any of the ${rows.length} rows`);
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching jacket live sheet:', error.message);
+    return { found: false };
+  }
+}
+
+async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'A:CL',
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) return { found: false };
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      let sheetOrderNumber = '';
+      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+        sheetOrderNumber = row[3].toString().trim();
+      }
+      
+      if (!sheetOrderNumber) continue;
+
+      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
+        let rawDispatchDate = '';
+        if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
+          rawDispatchDate = row[90];
+        }
+        
+        const formattedDate = formatDateForDisplay(rawDispatchDate);
+        
+        return {
+          found: true,
+          message: `Order got dispatched on ${formattedDate}`,
+          location: 'Completed Orders (Shirting)'
+        };
+      }
+    }
+
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching shirting completed sheet:', error);
+    return { found: false };
+  }
+}
+
+async function searchInJacketCompletedSheet(sheets, sheetId, orderNumber) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'A:BW',
+      valueRenderOption: 'FORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) return { found: false };
+
+    const startRow = rows.length > 2 ? 1 : 0;
+
+    for (let i = startRow; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      let sheetOrderNumber = '';
+      
+      // Try column E first (index 4)
+      if (row.length > 4 && row[4] !== undefined && row[4] !== null && row[4] !== '') {
+        sheetOrderNumber = row[4].toString().trim();
+      }
+      // Fallback to column D (index 3)
+      else if (row.length > 3 && row[3] !== undefined && row[3] !== null && row[3] !== '') {
+        sheetOrderNumber = row[3].toString().trim();
+      }
+      
+      if (!sheetOrderNumber) continue;
+
+      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
+        // Get dispatch date from BW column (index 74)
+        let rawDispatchDate = '';
+        if (row.length > 74 && row[74] !== undefined && row[74] !== null) {
+          rawDispatchDate = row[74];
+        }
+        
+        const formattedDate = formatDateForDisplay(rawDispatchDate);
+        
+        return {
+          found: true,
+          message: `Order got dispatched on ${formattedDate}`,
+          location: 'Completed Orders (Jacket)'
+        };
+      }
+    }
+
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching jacket completed sheet:', error);
+    return { found: false };
+  }
+}
+
+async function searchOrderStatus(orderNumber, category) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
+    if (liveSheetResult.found) return liveSheetResult;
+
+    const folderFiles = await drive.files.list({
+      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const completedResult = await searchInCompletedSheetSimplified(sheets, file.id, orderNumber);
+        if (completedResult.found) return completedResult;
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return { 
+      found: false, 
+      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
+    };
+
+  } catch (error) {
+    console.error('Error in searchOrderStatus:', error);
+    return { 
+      found: false, 
+      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
+    };
+  }
+}
+
+async function searchJacketOrderStatus(orderNumber, category) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const liveSheetResult = await searchInJacketLiveSheet(sheets, orderNumber);
+    if (liveSheetResult.found) return liveSheetResult;
+
+    const folderFiles = await drive.files.list({
+      q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const completedResult = await searchInJacketCompletedSheet(sheets, file.id, orderNumber);
+        if (completedResult.found) return completedResult;
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return { 
+      found: false, 
+      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
+    };
+
+  } catch (error) {
+    console.error('Error in searchJacketOrderStatus:', error);
+    return { 
+      found: false, 
+      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
+    };
+  }
+}
+
 async function generateStockPDF(searchResults, searchTerms, phoneNumber, permittedStores) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -727,7 +1377,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
   }
 }
 
-// Generate Order Results PDF
 async function generateOrderPDF(orderResults, searchTerm, phoneNumber, category) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -806,7 +1455,6 @@ async function generateOrderPDF(orderResults, searchTerm, phoneNumber, category)
   }
 }
 
-// Send file via Railway
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, permittedStores) {
   try {
     const fileStats = fs.statSync(filepath);
@@ -826,20 +1474,7 @@ async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, perm
       }
     }
 
-    const message = `*Results Generated*
-
-File: ${filename}
-Size: ${fileSizeKB} KB
-
-Download your PDF:
-${downloadUrl}
-${orderFormMessage}
-
-Click the link above to download
-Works on mobile and desktop
-Link expires in 5 minutes
-
-Type /menu for main menu`;
+    const message = `*Results Generated*\n\nFile: ${filename}\nSize: ${fileSizeKB} KB\n\nDownload your PDF:\n${downloadUrl}${orderFormMessage}\n\nClick the link above to download\nWorks on mobile and desktop\nLink expires in 5 minutes\n\nType /menu for main menu`;
 
     await sendWhatsAppMessage(to, message, productId, phoneId);
 
@@ -848,906 +1483,10 @@ Type /menu for main menu`;
   }
 }
 
-// Get user permitted stores from separate columns
-async function getUserPermittedStores(phoneNumber) {
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: STORE_PERMISSION_SHEET_ID,
-      range: 'store permission!A:B',
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return [];
-    }
-    
-    const permittedStores = [];
-    
-    const phoneVariations = [
-      phoneNumber,
-      phoneNumber.replace(/^\+91/, ''),
-      phoneNumber.replace(/^\+/, ''),
-      phoneNumber.replace(/^91/, ''),
-      phoneNumber.replace(/^0/, ''),
-      phoneNumber.slice(-10)
-    ];
-    
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length < 2) continue;
-      
-      const sheetContact = (row[0] || '').toString().trim();
-      const sheetStore = (row[1] || '').toString().trim();
-      
-      for (const phoneVar of phoneVariations) {
-        if (phoneVar === sheetContact) {
-          if (sheetStore && sheetStore !== '') {
-            permittedStores.push(sheetStore);
-          }
-          break;
-        }
-      }
-    }
-    
-    return permittedStores;
-    
-  } catch (error) {
-    console.error('Error getting permitted stores:', error);
-    return [];
-  }
-}
-
-// Smart Stock Query with 40-second session management
-async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
-  try {
-    // Update activity timestamp for this user
-    updateLastActivity(from);
-    
-    const validTerms = searchTerms.filter(term => {
-      const cleanTerm = term.trim();
-      return cleanTerm.length >= 5;
-    });
-    
-    if (validTerms.length === 0) {
-      await sendWhatsAppMessage(from, `*Invalid Search*
-
-Please provide at least 5 characters for searching.
-
-Examples:
-- 11010 (finds 11010088471-001)
-- ABC12 (finds ABC123456789)
-- 88471 (finds 11010088471-001)
-
-You can search again within 40 seconds or type /menu for main menu`, productId, phoneId);
-      
-      // Keep user in stock query state but update activity
-      userStates[from] = { 
-        currentMenu: 'smart_stock_query',
-        lastActivity: Date.now()
-      };
-      return;
-    }
-    
-    await sendWhatsAppMessage(from, `*Smart Stock Search*
-
-Searching for: ${validTerms.join(', ')}
-
-Please wait while I search all stock sheets...`, productId, phoneId);
-
-    const searchResults = await searchStockWithPartialMatch(validTerms);
-    const permittedStores = await getUserPermittedStores(from);
-    
-    let totalResults = 0;
-    validTerms.forEach(term => {
-      totalResults += (searchResults[term] || []).length;
-    });
-    
-    if (totalResults === 0) {
-      const noResultsMessage = `*No Results Found*
-
-No stock items found containing:
-${validTerms.map(term => `- ${term}`).join('\n')}
-
-Try:
-- Different search combinations
-- Shorter terms (5+ characters)
-- Both letters and numbers work
-
-You can search again within 40 seconds or type /menu for main menu`;
-      
-      await sendWhatsAppMessage(from, noResultsMessage, productId, phoneId);
-      
-      // Keep user in stock query state for 40 more seconds
-      userStates[from] = { 
-        currentMenu: 'smart_stock_query',
-        lastActivity: Date.now()
-      };
-      return;
-    }
-    
-    if (totalResults <= 15) {
-      let responseMessage = `*Smart Search Results*\n\n`;
-      
-      const storeGroups = {};
-      validTerms.forEach(term => {
-        const termResults = searchResults[term] || [];
-        termResults.forEach(result => {
-          if (!storeGroups[result.store]) {
-            storeGroups[result.store] = [];
-          }
-          storeGroups[result.store].push(result);
-        });
-      });
-      
-      Object.entries(storeGroups).forEach(([store, items]) => {
-        responseMessage += `*${store}*\n`;
-        items.forEach(item => {
-          const formattedStock = formatStockQuantity(item.stock);
-          responseMessage += `${item.qualityCode}: ${formattedStock}\n`;
-        });
-        responseMessage += `\n`;
-      });
-      
-      responseMessage += `*Place Orders*\n\n`;
-
-      if (permittedStores.length === 0) {
-        responseMessage += `No store permissions found\nContact admin for access\n\n`;
-      } else if (permittedStores.length === 1) {
-        const cleanPhone = from.replace(/^\+/, '');
-        const formUrl = `${STATIC_FORM_BASE_URL}?usp=pp_url&entry.740712049=${encodeURIComponent(cleanPhone)}&store=${encodeURIComponent(permittedStores[0])}`;
-        responseMessage += `*Your Store:* ${permittedStores}\n${formUrl}\n\n`;
-      } else {
-        responseMessage += `*Your Stores:*\n`;
-        permittedStores.forEach((store, index) => {
-          responseMessage += `${index + 1}. ${store}\n`;
-        });
-        responseMessage += `\nReply with store number to get order form\n\n`;
-      }
-      
-      responseMessage += `Search more items within 40 seconds or type /menu for main menu`;
-      
-      await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
-      
-      // Keep user in stock query state for 40 more seconds
-      userStates[from] = { 
-        currentMenu: 'smart_stock_query',
-        lastActivity: Date.now()
-      };
-      
-    } else {
-      try {
-        const pdfResult = await generateStockPDF(searchResults, validTerms, from, permittedStores);
-        
-        const summaryMessage = `*Large Results Found*
-
-Search: ${validTerms.join(', ')}
-Total Results: ${totalResults} items
-PDF Generated: ${pdfResult.filename}
-
-Results are too long for WhatsApp
-PDF does NOT include order forms—see WhatsApp message for order form link
-
-Search more items within 40 seconds or type /menu for main menu`;
-        
-        await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
-        await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, permittedStores);
-        
-        // Keep user in stock query state for 40 more seconds
-        userStates[from] = { 
-          currentMenu: 'smart_stock_query',
-          lastActivity: Date.now()
-        };
-        
-      } catch (pdfError) {
-        console.error('PDF generation failed:', pdfError);
-        await sendWhatsAppMessage(from, `*Error Generating PDF*
-
-Found ${totalResults} results but could not generate PDF.
-Please contact support.
-
-Type /menu for main menu`, productId, phoneId);
-        
-        // Reset state on error
-        delete userStates[from];
-      }
-    }
-    
-  } catch (error) {
-    console.error('Error in smart stock query:', error);
-    await sendWhatsAppMessage(from, `*Search Error*
-
-Unable to complete search.
-Please try again later.
-
-Type /menu for main menu`, productId, phoneId);
-    
-    // Reset state on error
-    delete userStates[from];
-  }
-}
-
-// Convert column letter to index (A=0, B=1, etc.)
-function columnToIndex(column) {
-  let index = 0;
-  for (let i = 0; i < column.length; i++) {
-    index = index * 26 + (column.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
-  }
-  return index - 1;
-}
-
-// Check shirting production stages with date formatting
-function checkProductionStages(row) {
-  try {
-    let lastCompletedStage = null;
-    let hasAnyStage = false;
-
-    for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
-      const stage = PRODUCTION_STAGES[i];
-      const columnIndex = columnToIndex(stage.column);
-      
-      let cellValue = '';
-      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
-        cellValue = row[columnIndex].toString().trim();
-      }
-      
-      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
-        lastCompletedStage = stage;
-        hasAnyStage = true;
-      }
-    }
-
-    if (!hasAnyStage) {
-      return { message: 'Order is currently under process' };
-    }
-
-    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
-      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-      
-      let rawDispatchDate = '';
-      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
-        rawDispatchDate = row[dispatchDateIndex];
-      }
-      
-      const formattedDate = formatDateForDisplay(rawDispatchDate);
-      
-      return { message: `Order has been dispatched from HO on ${formattedDate}` };
-    }
-
-    if (lastCompletedStage) {
-      return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
-      };
-    }
-
-    return { message: 'Error determining order status' };
-
-  } catch (error) {
-    console.error('Error checking production stages:', error);
-    return { message: 'Error checking order status' };
-  }
-}
-
-// Check jacket production stages with date formatting
-function checkJacketProductionStages(row) {
-  try {
-    let lastCompletedStage = null;
-    let hasAnyStage = false;
-
-    for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
-      const stage = JACKET_PRODUCTION_STAGES[i];
-      const columnIndex = columnToIndex(stage.column);
-      
-      let cellValue = '';
-      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
-        cellValue = row[columnIndex].toString().trim();
-      }
-      
-      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
-        lastCompletedStage = stage;
-        hasAnyStage = true;
-      }
-    }
-
-    if (!hasAnyStage) {
-      return { message: 'Order is currently under process' };
-    }
-
-    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
-      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-      
-      let rawDispatchDate = '';
-      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
-        rawDispatchDate = row[dispatchDateIndex];
-      }
-      
-      const formattedDate = formatDateForDisplay(rawDispatchDate);
-      
-      return { message: `Order has been dispatched from HO on ${formattedDate}` };
-    }
-
-    if (lastCompletedStage) {
-      return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
-      };
-    }
-
-    return { message: 'Error determining order status' };
-
-  } catch (error) {
-    console.error('Error checking jacket production stages:', error);
-    return { message: 'Error checking order status' };
-  }
-}
-
-// Enhanced order matching function
-function isOrderMatch(orderNumber, searchTerm) {
-  const upperOrderNumber = orderNumber.toUpperCase();
-  const upperSearchTerm = searchTerm.toUpperCase();
-  
-  // Remove common separators for better matching
-  const cleanOrderNumber = upperOrderNumber.replace(/[-_\s]/g, '');
-  const cleanSearchTerm = upperSearchTerm.replace(/[-_\s]/g, '');
-  
-  // Try multiple matching strategies:
-  
-  // 1. Direct substring match (current method)
-  if (upperOrderNumber.includes(upperSearchTerm)) {
-    return true;
-  }
-  
-  // 2. Clean substring match (removes dashes/spaces)
-  if (cleanOrderNumber.includes(cleanSearchTerm)) {
-    return true;
-  }
-  
-  // 3. Pattern match for segments (split by common separators)
-  const orderSegments = upperOrderNumber.split(/[-_\s]/);
-  for (const segment of orderSegments) {
-    if (segment.includes(upperSearchTerm)) {
-      return true;
-    }
-  }
-  
-  // 4. Fuzzy partial match for cases like J300 matching J3005
-  if (upperSearchTerm.length >= 3) {
-    const regex = new RegExp(upperSearchTerm.split('').join('.*?'), 'i');
-    if (regex.test(upperOrderNumber)) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-// Search shirting orders by partial match with enhanced pattern matching
-async function searchOrdersByPartialMatch(searchTerm) {
-  const matchingOrders = [];
-  
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const drive = google.drive({ version: 'v3', auth: authClient });
-
-    // Clean search term - remove spaces and convert to uppercase
-    const cleanSearchTerm = searchTerm.trim().toUpperCase();
-    
-    console.log(`🔍 Searching for shirting orders matching: "${cleanSearchTerm}"`);
-
-    // Search in live sheet first
-    const liveResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: LIVE_SHEET_ID,
-      range: `${LIVE_SHEET_NAME}!A:CL`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const liveRows = liveResponse.data.values;
-    if (liveRows && liveRows.length > 1) {
-      console.log(`Searching ${liveRows.length} rows in shirting live sheet...`);
-      
-      for (let i = 1; i < liveRows.length; i++) {
-        const row = liveRows[i];
-        if (!row || row.length === 0) continue;
-        
-        let orderNumber = '';
-        if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
-          orderNumber = row[3].toString().trim();
-        }
-        
-        // Enhanced matching logic
-        if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-          console.log(`✅ Found shirting match in live sheet: ${orderNumber}`);
-          const stageStatus = checkProductionStages(row);
-          matchingOrders.push({
-            orderNumber: orderNumber,
-            message: stageStatus.message,
-            location: 'Live Sheet (Shirting FMS)'
-          });
-        }
-      }
-    }
-
-    // Search in completed orders
-    const folderFiles = await drive.files.list({
-      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name)'
-    });
-
-    console.log(`Searching ${folderFiles.data.files.length} shirting completed order files...`);
-
-    for (const file of folderFiles.data.files) {
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: file.id,
-          range: 'A:CL',
-          valueRenderOption: 'UNFORMATTED_VALUE'
-        });
-
-        const rows = response.data.values;
-        if (!rows || rows.length === 0) continue;
-
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || row.length === 0) continue;
-          
-          let orderNumber = '';
-          if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
-            orderNumber = row[3].toString().trim();
-          }
-          
-          // Enhanced matching logic
-          if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-            console.log(`✅ Found shirting match in completed orders: ${orderNumber}`);
-            let rawDispatchDate = '';
-            if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
-              rawDispatchDate = row[90];
-            }
-            
-            const formattedDate = formatDateForDisplay(rawDispatchDate);
-            
-            matchingOrders.push({
-              orderNumber: orderNumber,
-              message: `Order got dispatched on ${formattedDate}`,
-              location: 'Completed Orders (Shirting)'
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`Error searching shirting file ${file.name}:`, error.message);
-        continue;
-      }
-    }
-
-    console.log(`📊 Total shirting matches found: ${matchingOrders.length}`);
-    return matchingOrders;
-
-  } catch (error) {
-    console.error('Error in searchOrdersByPartialMatch:', error);
-    return [];
-  }
-}
-
-// Search jacket orders by partial match
-async function searchJacketOrdersByPartialMatch(searchTerm) {
-  const matchingOrders = [];
-  
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const drive = google.drive({ version: 'v3', auth: authClient });
-
-    const cleanSearchTerm = searchTerm.trim().toUpperCase();
-    
-    console.log(`🔍 Searching for jacket orders matching: "${cleanSearchTerm}"`);
-
-    // Search in jacket live sheet
-    const liveResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: JACKET_LIVE_SHEET_ID,
-      range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const liveRows = liveResponse.data.values;
-    if (liveRows && liveRows.length > 2) {
-      console.log(`Searching ${liveRows.length} rows in jacket live sheet...`);
-      
-      for (let i = 2; i < liveRows.length; i++) {
-        const row = liveRows[i];
-        if (!row || row.length === 0) continue;
-        
-        let orderNumber = '';
-        if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-          orderNumber = row[4].toString().trim();
-        }
-        
-        if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-          console.log(`✅ Found jacket match in live sheet: ${orderNumber}`);
-          const stageStatus = checkJacketProductionStages(row);
-          matchingOrders.push({
-            orderNumber: orderNumber,
-            message: stageStatus.message,
-            location: 'Live Sheet (Jacket FMS)'
-          });
-        }
-      }
-    }
-
-    // Search in jacket completed orders
-    const folderFiles = await drive.files.list({
-      q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name)'
-    });
-
-    console.log(`Searching ${folderFiles.data.files.length} jacket completed order files...`);
-
-    for (const file of folderFiles.data.files) {
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: file.id,
-          range: 'A:BW',
-          valueRenderOption: 'UNFORMATTED_VALUE'
-        });
-
-        const rows = response.data.values;
-        if (!rows || rows.length === 0) continue;
-
-        for (let i = 2; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || row.length === 0) continue;
-          
-          let orderNumber = '';
-          if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-            orderNumber = row[4].toString().trim();
-          }
-          
-          if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-            console.log(`✅ Found jacket match in completed orders: ${orderNumber}`);
-            let rawDispatchDate = '';
-            if (row.length > 74 && row[74] !== undefined && row[74] !== null) {
-              rawDispatchDate = row[74];
-            }
-            
-            const formattedDate = formatDateForDisplay(rawDispatchDate);
-            
-            matchingOrders.push({
-              orderNumber: orderNumber,
-              message: `Order got dispatched on ${formattedDate}`,
-              location: 'Completed Orders (Jacket)'
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`Error searching jacket file ${file.name}:`, error.message);
-        continue;
-      }
-    }
-
-    console.log(`📊 Total jacket matches found: ${matchingOrders.length}`);
-    return matchingOrders;
-
-  } catch (error) {
-    console.error('Error in searchJacketOrdersByPartialMatch:', error);
-    return [];
-  }
-}
-
-// Search in shirting live sheet with enhanced debugging
-async function searchInLiveSheet(sheets, orderNumber) {
-  try {
-    console.log(`=== SEARCHING FOR SHIRTING ORDER: ${orderNumber} ===`);
-    
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: LIVE_SHEET_ID,
-      range: `${LIVE_SHEET_NAME}!A:CL`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      console.log('ERROR: No rows returned from shirting live sheet');
-      return { found: false };
-    }
-
-    console.log(`Shirting live sheet has ${rows.length} total rows`);
-
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length === 0) continue;
-      
-      let sheetOrderNumber = '';
-      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
-        sheetOrderNumber = row[3].toString().trim();
-      }
-      
-      if (sheetOrderNumber) {
-        const searchOrder = orderNumber.trim().toUpperCase();
-        const sheetOrder = sheetOrderNumber.toUpperCase();
-        
-        if (sheetOrder === searchOrder) {
-          console.log(`✅ SHIRTING EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
-          const stageStatus = checkProductionStages(row);
-          return {
-            found: true,
-            message: stageStatus.message,
-            location: 'Live Sheet (Shirting FMS)'
-          };
-        }
-      }
-    }
-
-    console.log(`❌ Shirting Order ${orderNumber} not found in any of the ${rows.length} rows`);
-    return { found: false };
-
-  } catch (error) {
-    console.error('Error searching shirting live sheet:', error.message);
-    return { found: false };
-  }
-}
-
-// Search in jacket live sheet
-async function searchInJacketLiveSheet(sheets, orderNumber) {
-  try {
-    console.log(`=== SEARCHING JACKET ORDER: ${orderNumber} ===`);
-    
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: JACKET_LIVE_SHEET_ID,
-      range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      console.log('ERROR: No rows returned from jacket live sheet');
-      return { found: false };
-    }
-
-    console.log(`Jacket live sheet has ${rows.length} total rows`);
-
-    // Skip header rows (data starts from row 3 based on your sheet)
-    for (let i = 2; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length === 0) continue;
-      
-      let sheetOrderNumber = '';
-      if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-        sheetOrderNumber = row[4].toString().trim(); // Column E (index 4)
-      }
-      
-      if (sheetOrderNumber) {
-        const searchOrder = orderNumber.trim().toUpperCase();
-        const sheetOrder = sheetOrderNumber.toUpperCase();
-        
-        if (sheetOrder === searchOrder) {
-          console.log(`✅ JACKET EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
-          const stageStatus = checkJacketProductionStages(row);
-          return {
-            found: true,
-            message: stageStatus.message,
-            location: 'Live Sheet (Jacket FMS)'
-          };
-        }
-      }
-    }
-
-    console.log(`❌ Jacket Order ${orderNumber} not found in any of the ${rows.length} rows`);
-    return { found: false };
-
-  } catch (error) {
-    console.error('Error searching jacket live sheet:', error.message);
-    return { found: false };
-  }
-}
-
-// Search in shirting completed orders with date formatting
-async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: sheetId,
-      range: 'A:CL',
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return { found: false };
-    }
-
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length === 0) continue;
-      
-      let sheetOrderNumber = '';
-      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
-        sheetOrderNumber = row[3].toString().trim();
-      }
-      
-      if (!sheetOrderNumber) continue;
-
-      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
-        let rawDispatchDate = '';
-        if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
-          rawDispatchDate = row[90];
-        }
-        
-        const formattedDate = formatDateForDisplay(rawDispatchDate);
-        
-        return {
-          found: true,
-          message: `Order got dispatched on ${formattedDate}`,
-          location: 'Completed Orders (Shirting)'
-        };
-      }
-    }
-
-    return { found: false };
-
-  } catch (error) {
-    console.error('Error searching shirting completed sheet:', error);
-    return { found: false };
-  }
-}
-
-// Search in jacket completed orders
-async function searchInJacketCompletedSheet(sheets, sheetId, orderNumber) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: sheetId,
-      range: 'A:BW',
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return { found: false };
-    }
-
-    // Skip header rows
-    for (let i = 2; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length === 0) continue;
-      
-      let sheetOrderNumber = '';
-      if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-        sheetOrderNumber = row[4].toString().trim(); // Column E
-      }
-      
-      if (!sheetOrderNumber) continue;
-
-      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
-        // Get dispatch date from BW column (index 74)
-        let rawDispatchDate = '';
-        if (row.length > 74 && row[74] !== undefined && row[74] !== null) {
-          rawDispatchDate = row[74];
-        }
-        
-        const formattedDate = formatDateForDisplay(rawDispatchDate);
-        
-        return {
-          found: true,
-          message: `Order got dispatched on ${formattedDate}`,
-          location: 'Completed Orders (Jacket)'
-        };
-      }
-    }
-
-    return { found: false };
-
-  } catch (error) {
-    console.error('Error searching jacket completed sheet:', error);
-    return { found: false };
-  }
-}
-
-// Main shirting order search function
-async function searchOrderStatus(orderNumber, category) {
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const drive = google.drive({ version: 'v3', auth: authClient });
-
-    const liveSheetResult = await searchInLiveSheet(sheets, orderNumber);
-    if (liveSheetResult.found) {
-      return liveSheetResult;
-    }
-
-    const folderFiles = await drive.files.list({
-      q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name)'
-    });
-
-    for (const file of folderFiles.data.files) {
-      try {
-        const completedResult = await searchInCompletedSheetSimplified(sheets, file.id, orderNumber);
-        if (completedResult.found) {
-          return completedResult;
-        }
-      } catch (error) {
-        continue;
-      }
-    }
-
-    return { 
-      found: false, 
-      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
-    };
-
-  } catch (error) {
-    console.error('Error in searchOrderStatus:', error);
-    return { 
-      found: false, 
-      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
-    };
-  }
-}
-
-// Main jacket order search function
-async function searchJacketOrderStatus(orderNumber, category) {
-  try {
-    const auth = await getGoogleAuth();
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const drive = google.drive({ version: 'v3', auth: authClient });
-
-    const liveSheetResult = await searchInJacketLiveSheet(sheets, orderNumber);
-    if (liveSheetResult.found) {
-      return liveSheetResult;
-    }
-
-    const folderFiles = await drive.files.list({
-      q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name)'
-    });
-
-    for (const file of folderFiles.data.files) {
-      try {
-        const completedResult = await searchInJacketCompletedSheet(sheets, file.id, orderNumber);
-        if (completedResult.found) {
-          return completedResult;
-        }
-      } catch (error) {
-        continue;
-      }
-    }
-
-    return { 
-      found: false, 
-      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
-    };
-
-  } catch (error) {
-    console.error('Error in searchJacketOrderStatus:', error);
-    return { 
-      found: false, 
-      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
-    };
-  }
-}
-
-// Check if user is within 2-minute order query window
-function isWithinOrderQueryWindow(from) {
-  if (!orderQueryTimestamps[from]) return false;
-  
-  const now = Date.now();
-  const lastQuery = orderQueryTimestamps[from];
-  const twoMinutes = 2 * 60 * 1000;
-  
-  return (now - lastQuery) < twoMinutes;
-}
-
-// Process order query with category-specific search
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId, isFollowUp = false) {
   try {
     if (!isFollowUp) {
-      await sendWhatsAppMessage(from, `*Checking ${category} orders...*
-
-Please wait while I search for your order status.`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*Checking ${category} orders...*\n\nPlease wait while I search for your order status.`, productId, phoneId);
     }
 
     let orderResults = [];
@@ -1759,30 +1498,25 @@ Please wait while I search for your order status.`, productId, phoneId);
       
       console.log(`Processing ${category} input: "${cleanInput}"`);
       
-      // Check if it's a short search term (3+ characters for partial matching)
       if (cleanInput.length >= 3 && cleanInput.length <= 10) {
-        // Partial search - find all matching orders based on category
         console.log(`Performing partial search for ${category}: ${cleanInput}`);
         
         let matchingOrders = [];
         if (category === 'Jacket') {
           matchingOrders = await searchJacketOrdersByPartialMatch(cleanInput);
         } else {
-          // Default to Shirting/existing logic
           matchingOrders = await searchOrdersByPartialMatch(cleanInput);
         }
         
         partialMatches = partialMatches.concat(matchingOrders);
         
       } else if (cleanInput.length > 10) {
-        // Exact order number search for longer strings
         console.log(`Performing exact search for ${category}: ${cleanInput}`);
         
         let orderStatus;
         if (category === 'Jacket') {
           orderStatus = await searchJacketOrderStatus(cleanInput, category);
         } else {
-          // Default to Shirting/existing logic
           orderStatus = await searchOrderStatus(cleanInput, category);
         }
         
@@ -1812,26 +1546,22 @@ Please wait while I search for your order status.`, productId, phoneId);
 
     if (orderResults.length === 0) {
       let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
-      responseMessage += `No orders found for the given search terms.\n\n`;
-      responseMessage += `Type /menu for main menu or / to go back`;
+      responseMessage += `No orders found for the given search terms.\n\nType /menu for main menu or / to go back`;
       
       await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
       return;
     }
 
-    // If 3 or fewer results, show in WhatsApp message
     if (orderResults.length <= 3) {
       let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
       
       orderResults.forEach(result => {
-        responseMessage += `*Order: ${result.orderNumber}*\n`;
-        responseMessage += `${result.message}\n\n`;
+        responseMessage += `*Order: ${result.orderNumber}*\n${result.message}\n\n`;
       });
       
       orderQueryTimestamps[from] = Date.now();
       
-      responseMessage += `You can query additional ${category} orders within the next 2 minutes by simply typing the order numbers.\n\n`;
-      responseMessage += `Type /menu for main menu or / to go back`;
+      responseMessage += `You can query additional ${category} orders within the next 2 minutes by simply typing the order numbers.\n\nType /menu for main menu or / to go back`;
       
       await sendWhatsAppMessage(from, responseMessage, productId, phoneId);
       
@@ -1842,37 +1572,21 @@ Please wait while I search for your order status.`, productId, phoneId);
       };
       
     } else {
-      // More than 3 results - generate PDF
       try {
         const searchTerm = orderNumbers.join(', ');
         const pdfResult = await generateOrderPDF(orderResults, searchTerm, from, category);
         
-        const summaryMessage = `*Large Results Found*
-
-Search: ${searchTerm}
-Total Results: ${orderResults.length} orders
-PDF Generated: ${pdfResult.filename}
-
-Results are too many for WhatsApp
-
-Type /menu for main menu`;
+        const summaryMessage = `*Large Results Found*\n\nSearch: ${searchTerm}\nTotal Results: ${orderResults.length} orders\nPDF Generated: ${pdfResult.filename}\n\nResults are too many for WhatsApp\n\nType /menu for main menu`;
         
         await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
         await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, []);
         
-        // Reset state after PDF generation
         delete userStates[from];
         
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
-        await sendWhatsAppMessage(from, `*Error Generating PDF*
-
-Found ${orderResults.length} results but could not generate PDF.
-Please contact support.
-
-Type /menu for main menu`, productId, phoneId);
+        await sendWhatsAppMessage(from, `*Error Generating PDF*\n\nFound ${orderResults.length} results but could not generate PDF.\nPlease contact support.\n\nType /menu for main menu`, productId, phoneId);
         
-        // Reset state on error
         delete userStates[from];
       }
     }
@@ -1881,28 +1595,23 @@ Type /menu for main menu`, productId, phoneId);
     console.error(`Error processing ${category} order query:`, error);
     await sendWhatsAppMessage(from, `Error checking ${category} orders\n\nPlease try again later.\n\nType /menu for main menu`, productId, phoneId);
     
-    // Reset state on error
     delete userStates[from];
   }
 }
 
-// MAIN WEBHOOK HANDLER - WITH ALL CONTEXT SWITCHING SHORTCUTS
+// MAIN WEBHOOK HANDLER
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
   const productId = req.body.product_id || req.body.productId;
   const phoneId = req.body.phone_id || req.body.phoneId;
 
-  if (!message || typeof message !== 'string') {
-    return res.sendStatus(200);
-  }
+  if (!message || typeof message !== 'string') return res.sendStatus(200);
 
   const trimmedMessage = message.trim();
-  if (trimmedMessage === '') {
-    return res.sendStatus(200);
-  }
+  if (trimmedMessage === '') return res.sendStatus(200);
 
-  // Check for expired stock sessions and clean them up
+  // Check for expired stock sessions
   if (userStates[from] && isStockSessionExpired(userStates[from])) {
     console.log(`Stock session expired for ${from} at ${new Date().toLocaleTimeString()}`);
     delete userStates[from];
@@ -1910,7 +1619,6 @@ app.post('/webhook', async (req, res) => {
 
   // Check if this is a valid bot interaction
   if (!isValidBotInteraction(trimmedMessage, userStates[from])) {
-    // IGNORE: Don't respond to random messages
     return res.sendStatus(200);
   }
 
@@ -1919,20 +1627,14 @@ app.post('/webhook', async (req, res) => {
   // Debug commands
   if (lowerMessage === '/debuggreet') {
     const greeting = await getUserGreeting(from);
-    const debugMessage = greeting 
-      ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
-      : 'No greeting found in sheet';
-    
+    const debugMessage = greeting ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}` : 'No greeting found in sheet';
     await sendWhatsAppMessage(from, `Greeting debug result: ${debugMessage}`, productId, phoneId);
     return res.sendStatus(200);
   }
 
   if (lowerMessage === '/debugpermissions') {
     const permissions = await getUserPermissions(from);
-    const debugMessage = permissions.length > 0 
-      ? `Your permissions: ${permissions.join(', ')}`
-      : 'No permissions found';
-    
+    const debugMessage = permissions.length > 0 ? `Your permissions: ${permissions.join(', ')}` : 'No permissions found';
     await sendWhatsAppMessage(from, `Permission debug result: ${debugMessage}`, productId, phoneId);
     return res.sendStatus(200);
   }
@@ -1949,14 +1651,72 @@ app.post('/webhook', async (req, res) => {
       
       const result = await searchInLiveSheet(sheets, testOrderNumber);
       
-      const debugResult = result.found 
-        ? `✅ Order FOUND: ${result.message}`
-        : `❌ Order NOT FOUND in live sheet`;
-        
+      const debugResult = result.found ? `✅ Order FOUND: ${result.message}` : `❌ Order NOT FOUND in live sheet`;
       await sendWhatsAppMessage(from, debugResult, productId, phoneId);
       
     } catch (error) {
       await sendWhatsAppMessage(from, `Error during debug: ${error.message}`, productId, phoneId);
+    }
+    
+    return res.sendStatus(200);
+  }
+
+  // FIXED: Add jacket debug command
+  if (lowerMessage.startsWith('/debugjacket ')) {
+    const testOrderNumber = trimmedMessage.replace('/debugjacket ', '').trim();
+    
+    await sendWhatsAppMessage(from, `🔍 Debugging jacket search for: ${testOrderNumber}`, productId, phoneId);
+    
+    try {
+      const auth = await getGoogleAuth();
+      const authClient = await auth.getClient();
+      const sheets = google.sheets({ version: 'v4', auth: authClient });
+      
+      // Test partial search
+      const partialResults = await searchJacketOrdersByPartialMatch(testOrderNumber);
+      
+      let debugResult = `=== JACKET DEBUG RESULTS ===\n\n`;
+      debugResult += `Search Term: "${testOrderNumber}"\n`;
+      debugResult += `Partial Matches Found: ${partialResults.length}\n\n`;
+      
+      if (partialResults.length > 0) {
+        partialResults.forEach((result, index) => {
+          debugResult += `${index + 1}. ${result.orderNumber}\n`;
+          debugResult += `   Status: ${result.message}\n`;
+          debugResult += `   Location: ${result.location}\n\n`;
+        });
+      } else {
+        debugResult += `No matches found. Checking sheet access...\n`;
+        
+        // Test sheet access
+        try {
+          const testResponse = await sheets.spreadsheets.values.get({
+            spreadsheetId: JACKET_LIVE_SHEET_ID,
+            range: `${JACKET_LIVE_SHEET_NAME}!A1:F10`,
+            valueRenderOption: 'FORMATTED_VALUE'
+          });
+          
+          const testRows = testResponse.data.values;
+          if (testRows && testRows.length > 0) {
+            debugResult += `✅ Sheet accessible. Found ${testRows.length} rows.\n`;
+            debugResult += `Sample data:\n`;
+            testRows.slice(0, 3).forEach((row, index) => {
+              const colD = row.length > 3 ? row[3] : 'EMPTY';
+              const colE = row.length > 4 ? row[4] : 'EMPTY';
+              debugResult += `Row ${index}: D="${colD}" E="${colE}"\n`;
+            });
+          } else {
+            debugResult += `❌ Sheet accessible but no data found.\n`;
+          }
+        } catch (accessError) {
+          debugResult += `❌ Sheet access error: ${accessError.message}\n`;
+        }
+      }
+      
+      await sendWhatsAppMessage(from, debugResult, productId, phoneId);
+      
+    } catch (error) {
+      await sendWhatsAppMessage(from, `Error during jacket debug: ${error.message}`, productId, phoneId);
     }
     
     return res.sendStatus(200);
@@ -2001,16 +1761,7 @@ app.post('/webhook', async (req, res) => {
         const finalMessage = formatGreetingMessage(greeting, personalizedMenu);
         await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       } else if (userStates[from] && userStates[from].currentMenu === 'order_query') {
-        const orderQueryMenu = `*ORDER QUERY*
-
-Please select the product category:
-
-1. Shirting
-2. Jacket  
-3. Trouser
-
-Type the number to continue or / to go back`;
-        
+        const orderQueryMenu = `*ORDER QUERY*\n\nPlease select the product category:\n\n1. Shirting\n2. Jacket\n3. Trouser\n\nType the number to continue or / to go back`;
         await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
       }
     } else {
@@ -2047,21 +1798,7 @@ Type the number to continue or / to go back`;
     
     const greeting = await getUserGreeting(from);
     
-    const stockQueryPrompt = `*SMART STOCK QUERY*
-
-Enter any 5+ character code (letters/numbers):
-
-Examples:
-- 11010 (finds 11010088471-001)
-- ABC12 (finds ABC123456-XYZ)  
-- 88471 (finds 11010088471-001)
-
-Multiple searches: Separate with commas
-Example: 11010, ABC12, 88471
-
-Smart search finds partial matches
-
-Type your search terms below or / to go back:`;
+    const stockQueryPrompt = `*SMART STOCK QUERY*\n\nEnter any 5+ character code (letters/numbers):\n\nExamples:\n- 11010 (finds 11010088471-001)\n- ABC12 (finds ABC123456-XYZ)\n- 88471 (finds 11010088471-001)\n\nMultiple searches: Separate with commas\nExample: 11010, ABC12, 88471\n\nSmart search finds partial matches\n\nType your search terms below or / to go back:`;
     
     const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -2079,15 +1816,7 @@ Type your search terms below or / to go back:`;
     
     const greeting = await getUserGreeting(from);
     
-    const orderQueryMenu = `*ORDER QUERY*
-
-Please select the product category:
-
-1. Shirting
-2. Jacket  
-3. Trouser
-
-Type the number to continue or / to go back`;
+    const orderQueryMenu = `*ORDER QUERY*\n\nPlease select the product category:\n\n1. Shirting\n2. Jacket\n3. Trouser\n\nType the number to continue or / to go back`;
     
     const finalMessage = formatGreetingMessage(greeting, orderQueryMenu);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -2112,15 +1841,7 @@ Type the number to continue or / to go back`;
     
     const greeting = await getUserGreeting(from);
     
-    const orderQuery = `*${category.toUpperCase()} ORDER QUERY*
-
-Please enter your Order Number(s) or search terms:
-
-Full order: GT54695O-1-1, D47727S-1-2
-Partial search: GT546, D477, 1234
-Multiple: GT546, D477, ABC123
-
-Type your search terms below or / to go back:`;
+    const orderQuery = `*${category.toUpperCase()} ORDER QUERY*\n\nPlease enter your Order Number(s) or search terms:\n\nFull order: GT54695O-1-1, D47727S-1-2\nPartial search: GT546, D477, 1554\nMultiple: GT546, D477, 1554\n\nType your search terms below or / to go back:`;
     
     const finalMessage = formatGreetingMessage(greeting, orderQuery);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -2134,13 +1855,7 @@ Type your search terms below or / to go back:`;
       return res.sendStatus(200);
     }
 
-    const helpTicketMessage = `*HELP TICKET*
-
-Click the link below to access Help Ticket form directly:
-
-${links.helpTicket}
-
-Type /menu for main menu or / to go back`;
+    const helpTicketMessage = `*HELP TICKET*\n\nClick the link below to access Help Ticket form directly:\n\n${links.helpTicket}\n\nType /menu for main menu or / to go back`;
 
     await sendWhatsAppMessage(from, helpTicketMessage, productId, phoneId);
     delete userStates[from]; // Clear any existing state
@@ -2153,13 +1868,7 @@ Type /menu for main menu or / to go back`;
       return res.sendStatus(200);
     }
 
-    const delegationMessage = `*DELEGATION*
-
-Click the link below to access Delegation form directly:
-
-${links.delegation}
-
-Type /menu for main menu or / to go back`;
+    const delegationMessage = `*DELEGATION*\n\nClick the link below to access Delegation form directly:\n\n${links.delegation}\n\nType /menu for main menu or / to go back`;
 
     await sendWhatsAppMessage(from, delegationMessage, productId, phoneId);
     delete userStates[from]; // Clear any existing state
@@ -2203,15 +1912,7 @@ Type /menu for main menu or / to go back`;
     // ORDER QUERY OPTION (2)
     if (trimmedMessage === '2' && (await hasFeatureAccess(from, 'order'))) {
       userStates[from] = { currentMenu: 'order_query', timestamp: Date.now() };
-      const orderQueryMenu = `*ORDER QUERY*
-
-Please select the product category:
-
-1. Shirting
-2. Jacket  
-3. Trouser
-
-Type the number to continue or / to go back`;
+      const orderQueryMenu = `*ORDER QUERY*\n\nPlease select the product category:\n\n1. Shirting\n2. Jacket\n3. Trouser\n\nType the number to continue or / to go back`;
       
       await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
       return res.sendStatus(200);
@@ -2226,21 +1927,7 @@ Type the number to continue or / to go back`;
       
       const greeting = await getUserGreeting(from);
       
-      const stockQueryPrompt = `*SMART STOCK QUERY*
-
-Enter any 5+ character code (letters/numbers):
-
-Examples:
-- 11010 (finds 11010088471-001)
-- ABC12 (finds ABC123456-XYZ)
-- 88471 (finds 11010088471-001)
-
-Multiple searches: Separate with commas
-Example: 11010, ABC12, 88471
-
-Smart search finds partial matches
-
-Type your search terms below or / to go back:`;
+      const stockQueryPrompt = `*SMART STOCK QUERY*\n\nEnter any 5+ character code (letters/numbers):\n\nExamples:\n- 11010 (finds 11010088471-001)\n- ABC12 (finds ABC123456-XYZ)\n- 88471 (finds 11010088471-001)\n\nMultiple searches: Separate with commas\nExample: 11010, ABC12, 88471\n\nSmart search finds partial matches\n\nType your search terms below or / to go back:`;
       
       const finalMessage = formatGreetingMessage(greeting, stockQueryPrompt);
       await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
@@ -2263,43 +1950,19 @@ Type your search terms below or / to go back:`;
   if (userStates[from] && userStates[from].currentMenu === 'order_query') {
     if (trimmedMessage === '1') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*
-
-Please enter your Order Number(s) or search terms:
-
-Full order: B-J3005Z-1-1
-Partial search: J3005Z, J300, 1234
-Multiple: J3005Z, J300, ABC123
-
-Type your search terms below or / to go back:`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*\n\nPlease enter your Order Number(s) or search terms:\n\nFull order: B-J3005Z-1-1\nPartial search: J3005Z, J300, 1234\nMultiple: J3005Z, J300, 1234\n\nType your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '2') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*
-
-Please enter your Order Number(s) or search terms:
-
-Full order: GT54695O-1-1, D47727S-1-2
-Partial search: GT546, D477, 1234
-Multiple: GT546, D477, ABC123
-
-Type your search terms below or / to go back:`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*\n\nPlease enter your Order Number(s) or search terms:\n\nFull order: GT54695O-1-1, D47727S-1-2\nPartial search: GT546, D477, 1554\nMultiple: GT546, D477, 1554\n\nType your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
     if (trimmedMessage === '3') {
       userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*
-
-Please enter your Order Number(s) or search terms:
-
-Full order: TR54695O-1-1
-Partial search: TR546, 1234
-Multiple: TR546, ABC123
-
-Type your search terms below or / to go back:`, productId, phoneId);
+      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*\n\nPlease enter your Order Number(s) or search terms:\n\nFull order: TR54695O-1-1\nPartial search: TR546, 1234\nMultiple: TR546, 1234\n\nType your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
@@ -2361,6 +2024,8 @@ app.listen(PORT, () => {
   console.log('✅ NEW: Enhanced order search with flexible pattern matching');
   console.log('✅ NEW: Smart matching for J3005Z, J300 → B-J3005Z-1-1, B-J3005Y-1-2, etc.');
   console.log('✅ NEW: JACKET WORKFLOW INTEGRATED - Separate search system');
+  console.log('✅ FIXED: Enhanced jacket order search with better error handling');
+  console.log('✅ FIXED: 1554 matching issue resolved with flexible matching');
   console.log('✅ All existing functions remain intact');
   console.log('');
   console.log('🚀 CONTEXT SWITCHING SHORTCUTS:');
@@ -2384,5 +2049,5 @@ app.listen(PORT, () => {
   console.log('📋 JACKET PRODUCTION STAGES:');
   console.log('   CUT → FUS → Prep → MAK → QC1 → BH → Press → QC2 → Dispatch(Factory) → Dispatch(HO)');
   console.log('');
-  console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
+  console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugjacket, /debugrows');
 });
