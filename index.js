@@ -61,7 +61,7 @@ const STOCK_SESSION_TIMEOUT = 40 * 1000; // 40 seconds in milliseconds
 const SHORTCUT_COMMANDS = [
   '/menu', '/stock', '/order', '/shirting', '/jacket', '/trouser',
   '/helpticket', '/delegation', '/',
-  '/debuggreet', '/debugpermissions', '/debugrows'
+  '/debuggreet', '/debugpermissions', '/debugrows', '/debugjacket'
 ];
 
 // Links for different options
@@ -1332,7 +1332,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
   }
 }
 
-// Search jacket orders by partial match
+// CORRECTED: Search jacket orders by partial match - FIXED COLUMN D
 async function searchJacketOrdersByPartialMatch(searchTerm) {
   const matchingOrders = [];
   
@@ -1362,8 +1362,9 @@ async function searchJacketOrdersByPartialMatch(searchTerm) {
         if (!row || row.length === 0) continue;
         
         let orderNumber = '';
-        if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-          orderNumber = row[4].toString().trim();
+        // FIXED: Changed from row[4] to row[3] (Column D instead of Column E)
+        if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+          orderNumber = row[3].toString().trim(); // Column D (index 3)
         }
         
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
@@ -1402,8 +1403,9 @@ async function searchJacketOrdersByPartialMatch(searchTerm) {
           if (!row || row.length === 0) continue;
           
           let orderNumber = '';
-          if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-            orderNumber = row[4].toString().trim();
+          // FIXED: Changed from row[4] to row[3] (Column D instead of Column E)
+          if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+            orderNumber = row[3].toString().trim(); // Column D (index 3)
           }
           
           if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
@@ -1490,7 +1492,7 @@ async function searchInLiveSheet(sheets, orderNumber) {
   }
 }
 
-// Search in jacket live sheet
+// CORRECTED: Search in jacket live sheet - FIXED COLUMN D
 async function searchInJacketLiveSheet(sheets, orderNumber) {
   try {
     console.log(`=== SEARCHING JACKET ORDER: ${orderNumber} ===`);
@@ -1515,8 +1517,9 @@ async function searchInJacketLiveSheet(sheets, orderNumber) {
       if (!row || row.length === 0) continue;
       
       let sheetOrderNumber = '';
-      if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-        sheetOrderNumber = row[4].toString().trim(); // Column E (index 4)
+      // FIXED: Changed from row[4] to row[3] (Column D instead of Column E)
+      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+        sheetOrderNumber = row[3].toString().trim(); // Column D (index 3)
       }
       
       if (sheetOrderNumber) {
@@ -1593,7 +1596,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
   }
 }
 
-// Search in jacket completed orders
+// CORRECTED: Search in jacket completed orders - FIXED COLUMN D
 async function searchInJacketCompletedSheet(sheets, sheetId, orderNumber) {
   try {
     const response = await sheets.spreadsheets.values.get({
@@ -1613,8 +1616,9 @@ async function searchInJacketCompletedSheet(sheets, sheetId, orderNumber) {
       if (!row || row.length === 0) continue;
       
       let sheetOrderNumber = '';
-      if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
-        sheetOrderNumber = row[4].toString().trim(); // Column E
+      // FIXED: Changed from row[4] to row[3] (Column D instead of Column E)
+      if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
+        sheetOrderNumber = row[3].toString().trim(); // Column D (index 3)
       }
       
       if (!sheetOrderNumber) continue;
@@ -1879,7 +1883,11 @@ Type /menu for main menu`, productId, phoneId);
     
   } catch (error) {
     console.error(`Error processing ${category} order query:`, error);
-    await sendWhatsAppMessage(from, `Error checking ${category} orders\n\nPlease try again later.\n\nType /menu for main menu`, productId, phoneId);
+    await sendWhatsAppMessage(from, `Error checking ${category} orders
+
+Please try again later.
+
+Type /menu for main menu`, productId, phoneId);
     
     // Reset state on error
     delete userStates[from];
@@ -1934,6 +1942,37 @@ app.post('/webhook', async (req, res) => {
       : 'No permissions found';
     
     await sendWhatsAppMessage(from, `Permission debug result: ${debugMessage}`, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // JACKET DEBUG COMMAND
+  if (lowerMessage === '/debugjacket') {
+    try {
+      const auth = await getGoogleAuth();
+      const authClient = await auth.getClient();
+      const sheets = google.sheets({ version: 'v4', auth: authClient });
+      
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: JACKET_LIVE_SHEET_ID,
+        range: `${JACKET_LIVE_SHEET_NAME}!A1:F10`,
+        valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+
+      const rows = response.data.values;
+      let debugMessage = `*JACKET SHEET DEBUG*\n\nFirst ${Math.min(10, rows.length)} rows:\n\n`;
+      
+      rows.forEach((row, index) => {
+        const colD = row.length > 3 ? row[3] : 'EMPTY';
+        const colE = row.length > 4 ? row[4] : 'EMPTY';
+        debugMessage += `Row ${index}: ColD="${colD}" ColE="${colE}"\n`;
+      });
+      
+      await sendWhatsAppMessage(from, debugMessage, productId, phoneId);
+      
+    } catch (error) {
+      await sendWhatsAppMessage(from, `Debug error: ${error.message}`, productId, phoneId);
+    }
+    
     return res.sendStatus(200);
   }
 
@@ -2330,6 +2369,7 @@ Type your search terms below or / to go back:`, productId, phoneId);
   return res.sendStatus(200);
 });
 
+// WhatsApp message sending function
 async function sendWhatsAppMessage(to, message, productId, phoneId) {
   try {
     await axios.post(
@@ -2360,7 +2400,7 @@ app.listen(PORT, () => {
   console.log('✅ FIXED: Bot ignores casual messages appropriately');
   console.log('✅ NEW: Enhanced order search with flexible pattern matching');
   console.log('✅ NEW: Smart matching for J3005Z, J300 → B-J3005Z-1-1, B-J3005Y-1-2, etc.');
-  console.log('✅ NEW: JACKET WORKFLOW INTEGRATED - Separate search system');
+  console.log('✅ CORRECTED: JACKET WORKFLOW - Fixed Column D (row[3]) instead of Column E (row[4])');
   console.log('✅ All existing functions remain intact');
   console.log('');
   console.log('🚀 CONTEXT SWITCHING SHORTCUTS:');
@@ -2384,5 +2424,9 @@ app.listen(PORT, () => {
   console.log('📋 JACKET PRODUCTION STAGES:');
   console.log('   CUT → FUS → Prep → MAK → QC1 → BH → Press → QC2 → Dispatch(Factory) → Dispatch(HO)');
   console.log('');
-  console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
+  console.log('🐛 JACKET ORDER SEARCH - FIXED:');
+  console.log('   ❌ Was looking at: Column E (row[4])');
+  console.log('   ✅ Now looking at: Column D (row[3]) - SAME AS SHIRTING');
+  console.log('');
+  console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows, /debugjacket');
 });
