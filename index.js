@@ -37,7 +37,7 @@ app.get('/download/:filename', (req, res) => {
           <body>
             <h2>File Not Found</h2>
             <p>The requested PDF file was not found or has expired.</p>
-            <p>Please generate a new stock query.</p>
+            <p>Please generate a new query.</p>
           </body>
         </html>
       `);
@@ -83,12 +83,17 @@ const USER_ACCESS_SHEET_ID = '1fK1JjsKgdt0tqawUKKgvcrgekj28uvqibk3QIFjtzbE';
 // Static Google Form configuration
 const STATIC_FORM_BASE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfyAo7LwYtQDfNVxPRbHdk_ymGpDs-RyWTCgzd2PdRhj0T3Hw/viewform';
 
-// Order Query Configuration
+// Shirting Order Query Configuration
 const LIVE_SHEET_ID = '1AxjCHsMxYUmEULaW1LxkW78g0Bv9fp4PkZteJO82uEA';
 const LIVE_SHEET_NAME = 'FMS';
 const COMPLETED_ORDER_FOLDER_ID = '1kgdPdnUK-FsnKZDE5yW6vtRf2H9d3YRE';
 
-// Production stages configuration
+// Jacket Order Configuration
+const JACKET_LIVE_SHEET_ID = '1XYXOv6C-aIuMVYDLSMflPZIQL7yJWq5BgnmDAnRMt58';
+const JACKET_LIVE_SHEET_NAME = 'FMS';
+const JACKET_COMPLETED_ORDER_FOLDER_ID = '1GmcGommmEBlP4iNPRA6NC4nbyFokCdY8';
+
+// Shirting Production stages configuration
 const PRODUCTION_STAGES = [
   { name: 'CUT', column: 'T', nextStage: 'FUS' },
   { name: 'FUS', column: 'Z', nextStage: 'PAS' },
@@ -101,6 +106,20 @@ const PRODUCTION_STAGES = [
   { name: 'IRO', column: 'BY', nextStage: 'Dispatch (Factory)' },
   { name: 'Dispatch (Factory)', column: 'CE', nextStage: 'Dispatch (HO)' },
   { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CH' }
+];
+
+// Jacket Production stages configuration (different from Shirting)
+const JACKET_PRODUCTION_STAGES = [
+  { name: 'CUT', column: 'T', nextStage: 'FUS' },
+  { name: 'FUS', column: 'Z', nextStage: 'Prep' },
+  { name: 'Prep', column: 'AF', nextStage: 'MAK' },
+  { name: 'MAK', column: 'AL', nextStage: 'QC1' },
+  { name: 'QC1', column: 'AR', nextStage: 'BH' },
+  { name: 'BH', column: 'AX', nextStage: 'Press' },
+  { name: 'Press', column: 'BD', nextStage: 'QC2' },
+  { name: 'QC2', column: 'BJ', nextStage: 'Dispatch (Factory)' },
+  { name: 'Dispatch (Factory)', column: 'BP', nextStage: 'Dispatch (HO)' },
+  { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
 ];
 
 // Function to check if stock session has expired
@@ -123,7 +142,7 @@ function updateLastActivity(from) {
   }
 }
 
-// UPDATED: Define valid commands and interactions with all shortcuts
+// Define valid commands and interactions with all shortcuts
 function isValidBotInteraction(message, userState) {
   const lowerMessage = message.toLowerCase().trim();
   
@@ -708,7 +727,7 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
   }
 }
 
-// NEW: Generate Order Results PDF
+// Generate Order Results PDF
 async function generateOrderPDF(orderResults, searchTerm, phoneNumber, category) {
   try {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
@@ -883,7 +902,7 @@ async function getUserPermittedStores(phoneNumber) {
   }
 }
 
-// UPDATED: Smart Stock Query with 40-second session management
+// Smart Stock Query with 40-second session management
 async function processSmartStockQuery(from, searchTerms, productId, phoneId) {
   try {
     // Update activity timestamp for this user
@@ -1061,7 +1080,7 @@ function columnToIndex(column) {
   return index - 1;
 }
 
-// Check production stages with date formatting
+// Check shirting production stages with date formatting
 function checkProductionStages(row) {
   try {
     let lastCompletedStage = null;
@@ -1113,7 +1132,59 @@ function checkProductionStages(row) {
   }
 }
 
-// NEW: Enhanced order matching function
+// Check jacket production stages with date formatting
+function checkJacketProductionStages(row) {
+  try {
+    let lastCompletedStage = null;
+    let hasAnyStage = false;
+
+    for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
+      const stage = JACKET_PRODUCTION_STAGES[i];
+      const columnIndex = columnToIndex(stage.column);
+      
+      let cellValue = '';
+      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
+        cellValue = row[columnIndex].toString().trim();
+      }
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+        lastCompletedStage = stage;
+        hasAnyStage = true;
+      }
+    }
+
+    if (!hasAnyStage) {
+      return { message: 'Order is currently under process' };
+    }
+
+    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
+      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
+      
+      let rawDispatchDate = '';
+      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
+        rawDispatchDate = row[dispatchDateIndex];
+      }
+      
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
+    }
+
+    if (lastCompletedStage) {
+      return { 
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
+      };
+    }
+
+    return { message: 'Error determining order status' };
+
+  } catch (error) {
+    console.error('Error checking jacket production stages:', error);
+    return { message: 'Error checking order status' };
+  }
+}
+
+// Enhanced order matching function
 function isOrderMatch(orderNumber, searchTerm) {
   const upperOrderNumber = orderNumber.toUpperCase();
   const upperSearchTerm = searchTerm.toUpperCase();
@@ -1153,7 +1224,7 @@ function isOrderMatch(orderNumber, searchTerm) {
   return false;
 }
 
-// UPDATED: Search orders by partial match with enhanced pattern matching
+// Search shirting orders by partial match with enhanced pattern matching
 async function searchOrdersByPartialMatch(searchTerm) {
   const matchingOrders = [];
   
@@ -1166,7 +1237,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
     // Clean search term - remove spaces and convert to uppercase
     const cleanSearchTerm = searchTerm.trim().toUpperCase();
     
-    console.log(`🔍 Searching for orders matching: "${cleanSearchTerm}"`);
+    console.log(`🔍 Searching for shirting orders matching: "${cleanSearchTerm}"`);
 
     // Search in live sheet first
     const liveResponse = await sheets.spreadsheets.values.get({
@@ -1177,7 +1248,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
 
     const liveRows = liveResponse.data.values;
     if (liveRows && liveRows.length > 1) {
-      console.log(`Searching ${liveRows.length} rows in live sheet...`);
+      console.log(`Searching ${liveRows.length} rows in shirting live sheet...`);
       
       for (let i = 1; i < liveRows.length; i++) {
         const row = liveRows[i];
@@ -1190,12 +1261,12 @@ async function searchOrdersByPartialMatch(searchTerm) {
         
         // Enhanced matching logic
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-          console.log(`✅ Found match in live sheet: ${orderNumber}`);
+          console.log(`✅ Found shirting match in live sheet: ${orderNumber}`);
           const stageStatus = checkProductionStages(row);
           matchingOrders.push({
             orderNumber: orderNumber,
             message: stageStatus.message,
-            location: 'Live Sheet (FMS)'
+            location: 'Live Sheet (Shirting FMS)'
           });
         }
       }
@@ -1207,7 +1278,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
       fields: 'files(id, name)'
     });
 
-    console.log(`Searching ${folderFiles.data.files.length} completed order files...`);
+    console.log(`Searching ${folderFiles.data.files.length} shirting completed order files...`);
 
     for (const file of folderFiles.data.files) {
       try {
@@ -1231,7 +1302,7 @@ async function searchOrdersByPartialMatch(searchTerm) {
           
           // Enhanced matching logic
           if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-            console.log(`✅ Found match in completed orders: ${orderNumber}`);
+            console.log(`✅ Found shirting match in completed orders: ${orderNumber}`);
             let rawDispatchDate = '';
             if (row.length > 90 && row[90] !== undefined && row[90] !== null) {
               rawDispatchDate = row[90];
@@ -1242,17 +1313,17 @@ async function searchOrdersByPartialMatch(searchTerm) {
             matchingOrders.push({
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
-              location: 'Completed Orders'
+              location: 'Completed Orders (Shirting)'
             });
           }
         }
       } catch (error) {
-        console.error(`Error searching ${file.name}:`, error.message);
+        console.error(`Error searching shirting file ${file.name}:`, error.message);
         continue;
       }
     }
 
-    console.log(`📊 Total matches found: ${matchingOrders.length}`);
+    console.log(`📊 Total shirting matches found: ${matchingOrders.length}`);
     return matchingOrders;
 
   } catch (error) {
@@ -1261,10 +1332,115 @@ async function searchOrdersByPartialMatch(searchTerm) {
   }
 }
 
-// Search in live sheet with enhanced debugging
+// Search jacket orders by partial match
+async function searchJacketOrdersByPartialMatch(searchTerm) {
+  const matchingOrders = [];
+  
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const cleanSearchTerm = searchTerm.trim().toUpperCase();
+    
+    console.log(`🔍 Searching for jacket orders matching: "${cleanSearchTerm}"`);
+
+    // Search in jacket live sheet
+    const liveResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: JACKET_LIVE_SHEET_ID,
+      range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const liveRows = liveResponse.data.values;
+    if (liveRows && liveRows.length > 2) {
+      console.log(`Searching ${liveRows.length} rows in jacket live sheet...`);
+      
+      for (let i = 2; i < liveRows.length; i++) {
+        const row = liveRows[i];
+        if (!row || row.length === 0) continue;
+        
+        let orderNumber = '';
+        if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+          orderNumber = row[4].toString().trim();
+        }
+        
+        if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
+          console.log(`✅ Found jacket match in live sheet: ${orderNumber}`);
+          const stageStatus = checkJacketProductionStages(row);
+          matchingOrders.push({
+            orderNumber: orderNumber,
+            message: stageStatus.message,
+            location: 'Live Sheet (Jacket FMS)'
+          });
+        }
+      }
+    }
+
+    // Search in jacket completed orders
+    const folderFiles = await drive.files.list({
+      q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    console.log(`Searching ${folderFiles.data.files.length} jacket completed order files...`);
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: file.id,
+          range: 'A:BW',
+          valueRenderOption: 'UNFORMATTED_VALUE'
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) continue;
+
+        for (let i = 2; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+          
+          let orderNumber = '';
+          if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+            orderNumber = row[4].toString().trim();
+          }
+          
+          if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
+            console.log(`✅ Found jacket match in completed orders: ${orderNumber}`);
+            let rawDispatchDate = '';
+            if (row.length > 74 && row[74] !== undefined && row[74] !== null) {
+              rawDispatchDate = row[74];
+            }
+            
+            const formattedDate = formatDateForDisplay(rawDispatchDate);
+            
+            matchingOrders.push({
+              orderNumber: orderNumber,
+              message: `Order got dispatched on ${formattedDate}`,
+              location: 'Completed Orders (Jacket)'
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Error searching jacket file ${file.name}:`, error.message);
+        continue;
+      }
+    }
+
+    console.log(`📊 Total jacket matches found: ${matchingOrders.length}`);
+    return matchingOrders;
+
+  } catch (error) {
+    console.error('Error in searchJacketOrdersByPartialMatch:', error);
+    return [];
+  }
+}
+
+// Search in shirting live sheet with enhanced debugging
 async function searchInLiveSheet(sheets, orderNumber) {
   try {
-    console.log(`=== SEARCHING FOR ORDER: ${orderNumber} ===`);
+    console.log(`=== SEARCHING FOR SHIRTING ORDER: ${orderNumber} ===`);
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: LIVE_SHEET_ID,
@@ -1274,11 +1450,11 @@ async function searchInLiveSheet(sheets, orderNumber) {
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
-      console.log('ERROR: No rows returned from live sheet');
+      console.log('ERROR: No rows returned from shirting live sheet');
       return { found: false };
     }
 
-    console.log(`Live sheet has ${rows.length} total rows`);
+    console.log(`Shirting live sheet has ${rows.length} total rows`);
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
@@ -1294,27 +1470,81 @@ async function searchInLiveSheet(sheets, orderNumber) {
         const sheetOrder = sheetOrderNumber.toUpperCase();
         
         if (sheetOrder === searchOrder) {
-          console.log(`✅ EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
+          console.log(`✅ SHIRTING EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
           const stageStatus = checkProductionStages(row);
           return {
             found: true,
             message: stageStatus.message,
-            location: 'Live Sheet (FMS)'
+            location: 'Live Sheet (Shirting FMS)'
           };
         }
       }
     }
 
-    console.log(`❌ Order ${orderNumber} not found in any of the ${rows.length} rows`);
+    console.log(`❌ Shirting Order ${orderNumber} not found in any of the ${rows.length} rows`);
     return { found: false };
 
   } catch (error) {
-    console.error('Error searching live sheet:', error.message);
+    console.error('Error searching shirting live sheet:', error.message);
     return { found: false };
   }
 }
 
-// Search in completed orders with date formatting
+// Search in jacket live sheet
+async function searchInJacketLiveSheet(sheets, orderNumber) {
+  try {
+    console.log(`=== SEARCHING JACKET ORDER: ${orderNumber} ===`);
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: JACKET_LIVE_SHEET_ID,
+      range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('ERROR: No rows returned from jacket live sheet');
+      return { found: false };
+    }
+
+    console.log(`Jacket live sheet has ${rows.length} total rows`);
+
+    // Skip header rows (data starts from row 3 based on your sheet)
+    for (let i = 2; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      let sheetOrderNumber = '';
+      if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+        sheetOrderNumber = row[4].toString().trim(); // Column E (index 4)
+      }
+      
+      if (sheetOrderNumber) {
+        const searchOrder = orderNumber.trim().toUpperCase();
+        const sheetOrder = sheetOrderNumber.toUpperCase();
+        
+        if (sheetOrder === searchOrder) {
+          console.log(`✅ JACKET EXACT MATCH FOUND at row ${i}: ${sheetOrderNumber}`);
+          const stageStatus = checkJacketProductionStages(row);
+          return {
+            found: true,
+            message: stageStatus.message,
+            location: 'Live Sheet (Jacket FMS)'
+          };
+        }
+      }
+    }
+
+    console.log(`❌ Jacket Order ${orderNumber} not found in any of the ${rows.length} rows`);
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching jacket live sheet:', error.message);
+    return { found: false };
+  }
+}
+
+// Search in shirting completed orders with date formatting
 async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
   try {
     const response = await sheets.spreadsheets.values.get({
@@ -1350,7 +1580,7 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
         return {
           found: true,
           message: `Order got dispatched on ${formattedDate}`,
-          location: 'Completed Orders'
+          location: 'Completed Orders (Shirting)'
         };
       }
     }
@@ -1358,12 +1588,63 @@ async function searchInCompletedSheetSimplified(sheets, sheetId, orderNumber) {
     return { found: false };
 
   } catch (error) {
-    console.error('Error searching completed sheet:', error);
+    console.error('Error searching shirting completed sheet:', error);
     return { found: false };
   }
 }
 
-// Main order search function
+// Search in jacket completed orders
+async function searchInJacketCompletedSheet(sheets, sheetId, orderNumber) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'A:BW',
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return { found: false };
+    }
+
+    // Skip header rows
+    for (let i = 2; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+      
+      let sheetOrderNumber = '';
+      if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+        sheetOrderNumber = row[4].toString().trim(); // Column E
+      }
+      
+      if (!sheetOrderNumber) continue;
+
+      if (sheetOrderNumber.toUpperCase() === orderNumber.trim().toUpperCase()) {
+        // Get dispatch date from BW column (index 74)
+        let rawDispatchDate = '';
+        if (row.length > 74 && row[74] !== undefined && row[74] !== null) {
+          rawDispatchDate = row[74];
+        }
+        
+        const formattedDate = formatDateForDisplay(rawDispatchDate);
+        
+        return {
+          found: true,
+          message: `Order got dispatched on ${formattedDate}`,
+          location: 'Completed Orders (Jacket)'
+        };
+      }
+    }
+
+    return { found: false };
+
+  } catch (error) {
+    console.error('Error searching jacket completed sheet:', error);
+    return { found: false };
+  }
+}
+
+// Main shirting order search function
 async function searchOrderStatus(orderNumber, category) {
   try {
     const auth = await getGoogleAuth();
@@ -1406,6 +1687,49 @@ async function searchOrderStatus(orderNumber, category) {
   }
 }
 
+// Main jacket order search function
+async function searchJacketOrderStatus(orderNumber, category) {
+  try {
+    const auth = await getGoogleAuth();
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+    const drive = google.drive({ version: 'v3', auth: authClient });
+
+    const liveSheetResult = await searchInJacketLiveSheet(sheets, orderNumber);
+    if (liveSheetResult.found) {
+      return liveSheetResult;
+    }
+
+    const folderFiles = await drive.files.list({
+      q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name)'
+    });
+
+    for (const file of folderFiles.data.files) {
+      try {
+        const completedResult = await searchInJacketCompletedSheet(sheets, file.id, orderNumber);
+        if (completedResult.found) {
+          return completedResult;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return { 
+      found: false, 
+      message: 'Order not found in system. Please contact responsible person.\n\nThank you.' 
+    };
+
+  } catch (error) {
+    console.error('Error in searchJacketOrderStatus:', error);
+    return { 
+      found: false, 
+      message: 'Error occurred while searching order. Please contact responsible person.\n\nThank you.' 
+    };
+  }
+}
+
 // Check if user is within 2-minute order query window
 function isWithinOrderQueryWindow(from) {
   if (!orderQueryTimestamps[from]) return false;
@@ -1417,7 +1741,7 @@ function isWithinOrderQueryWindow(from) {
   return (now - lastQuery) < twoMinutes;
 }
 
-// UPDATED: Process order query with 4-digit search and PDF support
+// Process order query with category-specific search
 async function processOrderQuery(from, category, orderNumbers, productId, phoneId, isFollowUp = false) {
   try {
     if (!isFollowUp) {
@@ -1433,18 +1757,35 @@ Please wait while I search for your order status.`, productId, phoneId);
     for (const orderInput of orderNumbers) {
       const cleanInput = orderInput.trim();
       
-      console.log(`Processing input: "${cleanInput}"`);
+      console.log(`Processing ${category} input: "${cleanInput}"`);
       
       // Check if it's a short search term (3+ characters for partial matching)
       if (cleanInput.length >= 3 && cleanInput.length <= 10) {
-        // Partial search - find all matching orders
-        console.log(`Performing partial search for: ${cleanInput}`);
-        const matchingOrders = await searchOrdersByPartialMatch(cleanInput);
+        // Partial search - find all matching orders based on category
+        console.log(`Performing partial search for ${category}: ${cleanInput}`);
+        
+        let matchingOrders = [];
+        if (category === 'Jacket') {
+          matchingOrders = await searchJacketOrdersByPartialMatch(cleanInput);
+        } else {
+          // Default to Shirting/existing logic
+          matchingOrders = await searchOrdersByPartialMatch(cleanInput);
+        }
+        
         partialMatches = partialMatches.concat(matchingOrders);
+        
       } else if (cleanInput.length > 10) {
         // Exact order number search for longer strings
-        console.log(`Performing exact search for: ${cleanInput}`);
-        const orderStatus = await searchOrderStatus(cleanInput, category);
+        console.log(`Performing exact search for ${category}: ${cleanInput}`);
+        
+        let orderStatus;
+        if (category === 'Jacket') {
+          orderStatus = await searchJacketOrderStatus(cleanInput, category);
+        } else {
+          // Default to Shirting/existing logic
+          orderStatus = await searchOrderStatus(cleanInput, category);
+        }
+        
         exactMatches.push({
           orderNumber: cleanInput,
           message: orderStatus.message,
@@ -1467,7 +1808,7 @@ Please wait while I search for your order status.`, productId, phoneId);
     
     orderResults = uniqueResults;
 
-    console.log(`Final results count: ${orderResults.length}`);
+    console.log(`Final ${category} results count: ${orderResults.length}`);
 
     if (orderResults.length === 0) {
       let responseMessage = isFollowUp ? `*ADDITIONAL ${category.toUpperCase()} ORDER STATUS*\n\n` : `*${category.toUpperCase()} ORDER STATUS*\n\n`;
@@ -1537,8 +1878,8 @@ Type /menu for main menu`, productId, phoneId);
     }
     
   } catch (error) {
-    console.error('Error processing order query:', error);
-    await sendWhatsAppMessage(from, 'Error checking orders\n\nPlease try again later.\n\nType /menu for main menu', productId, phoneId);
+    console.error(`Error processing ${category} order query:`, error);
+    await sendWhatsAppMessage(from, `Error checking ${category} orders\n\nPlease try again later.\n\nType /menu for main menu`, productId, phoneId);
     
     // Reset state on error
     delete userStates[from];
@@ -1727,7 +2068,7 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
-  // NEW: Direct Order Query shortcut
+  // Direct Order Query shortcut
   if (lowerMessage === '/order') {
     if (!(await hasFeatureAccess(from, 'order'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
@@ -1775,9 +2116,9 @@ Type the number to continue or / to go back`;
 
 Please enter your Order Number(s) or search terms:
 
-Full order: B-J3005Z-1-1
-Partial search: J3005Z, J300, 1234
-Multiple: J3005Z, J300, ABC123
+Full order: GT54695O-1-1, D47727S-1-2
+Partial search: GT546, D477, 1234
+Multiple: GT546, D477, ABC123
 
 Type your search terms below or / to go back:`;
     
@@ -1940,9 +2281,9 @@ Type your search terms below or / to go back:`, productId, phoneId);
 
 Please enter your Order Number(s) or search terms:
 
-Full order: B-J3005Z-1-1
-Partial search: J3005Z, J300, 1234
-Multiple: J3005Z, J300, ABC123
+Full order: GT54695O-1-1, D47727S-1-2
+Partial search: GT546, D477, 1234
+Multiple: GT546, D477, ABC123
 
 Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
@@ -1954,9 +2295,9 @@ Type your search terms below or / to go back:`, productId, phoneId);
 
 Please enter your Order Number(s) or search terms:
 
-Full order: B-J3005Z-1-1
-Partial search: J3005Z, J300, 1234
-Multiple: J3005Z, J300, ABC123
+Full order: TR54695O-1-1
+Partial search: TR546, 1234
+Multiple: TR546, ABC123
 
 Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
@@ -2019,6 +2360,7 @@ app.listen(PORT, () => {
   console.log('✅ FIXED: Bot ignores casual messages appropriately');
   console.log('✅ NEW: Enhanced order search with flexible pattern matching');
   console.log('✅ NEW: Smart matching for J3005Z, J300 → B-J3005Z-1-1, B-J3005Y-1-2, etc.');
+  console.log('✅ NEW: JACKET WORKFLOW INTEGRATED - Separate search system');
   console.log('✅ All existing functions remain intact');
   console.log('');
   console.log('🚀 CONTEXT SWITCHING SHORTCUTS:');
@@ -2026,18 +2368,21 @@ app.listen(PORT, () => {
   console.log('   /stock - Direct stock query (from anywhere)');
   console.log('   /order - Order query menu (from anywhere)');
   console.log('   /shirting - Direct shirting orders (from anywhere)');
-  console.log('   /jacket - Direct jacket orders (from anywhere)');
+  console.log('   /jacket - Direct jacket orders (from anywhere)'); 
   console.log('   /trouser - Direct trouser orders (from anywhere)');
   console.log('   /helpticket - Direct help ticket (from anywhere)');
   console.log('   /delegation - Direct delegation (from anywhere)');
   console.log('');
   console.log('🔍 ENHANCED ORDER SEARCH FEATURES:');
-  console.log('   - Full order numbers: B-J3005Z-1-1');
-  console.log('   - Partial codes: J3005Z → finds B-J3005Z-1-1');
-  console.log('   - Fuzzy matching: J300 → finds B-J3005Y-1-2, B-J3005Y-2-2');
+  console.log('   - Full order numbers: GT54695O-1-1, D47727S-1-2');
+  console.log('   - Partial codes: GT546 → finds GT54695O-1-1');
+  console.log('   - Category-specific: Shirting and Jacket separate systems');
   console.log('   - Pattern matching with dashes, spaces, underscores');
   console.log('   - PDF generation for >3 results');
   console.log('   - WhatsApp display for ≤3 results');
+  console.log('');
+  console.log('📋 JACKET PRODUCTION STAGES:');
+  console.log('   CUT → FUS → Prep → MAK → QC1 → BH → Press → QC2 → Dispatch(Factory) → Dispatch(HO)');
   console.log('');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows');
 });
