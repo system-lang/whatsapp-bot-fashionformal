@@ -55,11 +55,10 @@ let orderQueryTimestamps = {};
 // Configuration constants
 const STOCK_SESSION_TIMEOUT = 40 * 1000;
 const SHORTCUT_COMMANDS = [
-  '/menu', '/stock', '/order', '/ordershirt', '/orderjacket', '/ordertrouser',
+  '/menu', '/stock', '/order', '/shirting', '/jacket', '/trouser',
   '/helpticket', '/delegation', '/',
   '/debuggreet', '/debugpermissions', '/debugrows', '/debugjacket', '/debugtrouser'
 ];
-
 
 const links = {
   helpTicket: 'https://tinyurl.com/HelpticketFF',
@@ -574,11 +573,10 @@ Please contact administrator for access.`;
   
   if (userPermissions.includes('order')) {
     menuItems.push('2. Order Query');
-   shortcuts.push('/order - Direct Order Menu');
-shortcuts.push('/ordershirt - Order Shirt');
-shortcuts.push('/orderjacket - Order Jacket');
-shortcuts.push('/ordertrouser - Order Trouser');
-
+    shortcuts.push('/order - Direct Order Menu');
+    shortcuts.push('/shirting - Shirting Orders');
+    shortcuts.push('/jacket - Jacket Orders');
+    shortcuts.push('/trouser - Trouser Orders');
   }
   
   if (userPermissions.includes('stock')) {
@@ -1351,15 +1349,14 @@ Please wait while I search for your order status.`, productId, phoneId);
         console.log(`Performing partial search for ${category}: ${cleanInput}`);
         
         let matchingOrders = [];
-if (category === 'Order Jacket') {
-    matchingOrders = await searchJacketOrdersByPartialMatch(cleanInput);
-} else if (category === 'Order Trouser') {
-    matchingOrders = await searchTrouserOrdersByPartialMatch(cleanInput);
-} else {
-    // Default to Order Shirt/existing logic
-    matchingOrders = await searchOrdersByPartialMatch(cleanInput);
-}
-
+        if (category === 'Jacket') {
+          matchingOrders = await searchJacketOrdersByPartialMatch(cleanInput);
+        } else if (category === 'Trouser') {
+          matchingOrders = await searchTrouserOrdersByPartialMatch(cleanInput);
+        } else {
+          // Default to Shirting/existing logic
+          matchingOrders = await searchOrdersByPartialMatch(cleanInput);
+        }
         
         partialMatches = partialMatches.concat(matchingOrders);
         
@@ -1368,15 +1365,14 @@ if (category === 'Order Jacket') {
         console.log(`Performing exact search for ${category}: ${cleanInput}`);
         
         let orderStatus;
-if (category === 'Order Jacket') {
-    orderStatus = await searchJacketOrderStatus(cleanInput, category);
-} else if (category === 'Order Trouser') {
-    orderStatus = await searchTrouserOrderStatus(cleanInput, category);
-} else {
-    // Default to Order Shirt/existing logic
-    orderStatus = await searchOrderStatus(cleanInput, category);
-}
-
+        if (category === 'Jacket') {
+          orderStatus = await searchJacketOrderStatus(cleanInput, category);
+        } else if (category === 'Trouser') {
+          orderStatus = await searchTrouserOrderStatus(cleanInput, category);
+        } else {
+          // Default to Shirting/existing logic
+          orderStatus = await searchOrderStatus(cleanInput, category);
+        }
         
         exactMatches.push({
           orderNumber: cleanInput,
@@ -1434,41 +1430,16 @@ if (category === 'Order Jacket') {
       };
       
     } else {
-  // More than 3 results - generate enhanced PDF
-  try {
-    const pdfResult = await generateOrderPDF(orderResults, category, from);
-    
-    const baseUrl = 'https://whatsapp-bot-fashionformal-production.up.railway.app';
-    const downloadUrl = `${baseUrl}/download/${pdfResult.filename}`;
-    
-    const message = `*${category.toUpperCase()} ORDER RESULTS*
+      // More than 3 results - generate PDF (simplified for space)
+      await sendWhatsAppMessage(from, `*Large Results Found*
 
-Found: ${orderResults.length} orders
-PDF Generated: ${pdfResult.filename}
-
-Download your detailed report:
-${downloadUrl}
-
-Results are formatted in a professional layout
-Link expires in 5 minutes
-
-Type /menu for main menu`;
-
-    await sendWhatsAppMessage(from, message, productId, phoneId);
-    
-  } catch (pdfError) {
-    console.error('PDF generation failed:', pdfError);
-    await sendWhatsAppMessage(from, `*Error Generating PDF*
-
-Found ${orderResults.length} results but could not generate PDF.
-Please contact support.
+Found ${orderResults.length} orders. 
+Results are too many for WhatsApp.
 
 Type /menu for main menu`, productId, phoneId);
-  }
-  
-  delete userStates[from];
-}
-
+      
+      delete userStates[from];
+    }
     
   } catch (error) {
     console.error(`Error processing ${category} order query:`, error);
@@ -1670,18 +1641,15 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
       totalResults += termResults.length;
       
       termResults.forEach(result => {
-  const stockValue = parseFloat(result.stock) || 0;
-  if (stockValue > 0) { // Only include positive stock
-    if (!allStoreGroups[result.store]) {
-      allStoreGroups[result.store] = [];
-    }
-    allStoreGroups[result.store].push({
-      qualityCode: result.qualityCode,
-      stock: formatStockQuantity(result.stock)
+        if (!allStoreGroups[result.store]) {
+          allStoreGroups[result.store] = [];
+        }
+        allStoreGroups[result.store].push({
+          qualityCode: result.qualityCode,
+          stock: formatStockQuantity(result.stock)
+        });
+      });
     });
-  }
-});
-
 
     Object.entries(allStoreGroups).forEach(([storeName, items]) => {
       doc.fontSize(16)
@@ -1738,133 +1706,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
     throw error;
   }
 }
-
-// Generate PDF for Order Results with better layout
-async function generateOrderPDF(orderResults, category, phoneNumber) {
-  try {
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-    const filename = `${category.toLowerCase().replace(' ', '_')}_orders_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
-    const filepath = path.join(__dirname, 'temp', filename);
-    
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    const doc = new PDFDocument({
-      margin: 40,
-      size: 'A4'
-    });
-
-    const stream = fs.createWriteStream(filepath);
-    doc.pipe(stream);
-
-    // Header
-    doc.fontSize(20)
-       .font('Helvetica-Bold')
-       .fillColor('#2C3E50')
-       .text(`${category.toUpperCase()} ORDER STATUS REPORT`, { align: 'center' });
-    
-    doc.moveDown(0.5);
-    
-    // Info section
-    doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#7F8C8D')
-       .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, { align: 'right' })
-       .text(`Phone: ${phoneNumber}`, { align: 'right' })
-       .text(`Total Orders: ${orderResults.length}`, { align: 'right' })
-       .moveDown(0.5);
-
-    // Horizontal line
-    doc.strokeColor('#BDC3C7')
-       .lineWidth(1)
-       .moveTo(40, doc.y)
-       .lineTo(555, doc.y)
-       .stroke();
-    
-    doc.moveDown(1);
-
-    // Order details
-    orderResults.forEach((result, index) => {
-      // Check if we need a new page
-      if (doc.y > 700) {
-        doc.addPage();
-        doc.y = 40;
-      }
-
-      // Order header box
-      doc.fillColor('#3498DB')
-         .rect(40, doc.y, 515, 25)
-         .fill();
-      
-      doc.fontSize(12)
-         .font('Helvetica-Bold')
-         .fillColor('#FFFFFF')
-         .text(`ORDER ${index + 1}: ${result.orderNumber}`, 50, doc.y + 8);
-      
-      doc.moveDown(1.5);
-
-      // Status section
-      doc.fillColor('#ECF0F1')
-         .rect(40, doc.y, 515, 40)
-         .fill();
-      
-      doc.fontSize(10)
-         .font('Helvetica-Bold')
-         .fillColor('#2C3E50')
-         .text('STATUS:', 50, doc.y + 8);
-      
-      doc.fontSize(10)
-         .font('Helvetica')
-         .fillColor('#27AE60')
-         .text(result.message, 50, doc.y + 22, { width: 500 });
-      
-      doc.moveDown(2);
-
-      // Location info
-      if (result.location) {
-        doc.fontSize(8)
-           .font('Helvetica-Oblique')
-           .fillColor('#95A5A6')
-           .text(`Source: ${result.location}`, 50, doc.y);
-        doc.moveDown(0.5);
-      }
-
-      // Separator line
-      if (index < orderResults.length - 1) {
-        doc.strokeColor('#E8E8E8')
-           .lineWidth(0.5)
-           .moveTo(40, doc.y + 10)
-           .lineTo(555, doc.y + 10)
-           .stroke();
-        doc.moveDown(1);
-      }
-    });
-
-    // Footer
-    const totalPages = Math.ceil((doc.y - 40) / 700) || 1;
-    doc.fontSize(8)
-       .font('Helvetica')
-       .fillColor('#7F8C8D')
-       .text(`Generated by WhatsApp Order Bot - ${new Date().toISOString().split('T')[0]}`, 
-              40, doc.page.height - 30, { align: 'center' });
-
-    doc.end();
-
-    await new Promise((resolve, reject) => {
-      stream.on('finish', resolve);
-      stream.on('error', reject);
-    });
-
-    return { filepath, filename };
-
-  } catch (error) {
-    console.error('Error generating order PDF:', error);
-    throw error;
-  }
-}
-
 
 // Send file via Railway
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, permittedStores) {
@@ -2194,12 +2035,11 @@ app.post('/webhook', async (req, res) => {
 
 Please select the product category:
 
-1. Order Shirt
-2. Order Jacket  
-3. Order Trouser
+1. Shirting
+2. Jacket  
+3. Trouser
 
 Type the number to continue or / to go back`;
-
         
         await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
       }
@@ -2273,31 +2113,30 @@ Type your search terms below or / to go back:`;
 
 Please select the product category:
 
-1. Order Shirt
-2. Order Jacket  
-3. Order Trouser
+1. Shirting
+2. Jacket  
+3. Trouser
 
 Type the number to continue or / to go back`;
-
     
     const finalMessage = formatGreetingMessage(greeting, orderQueryMenu);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
   }
 
- // Order category shortcuts with security check
-if (lowerMessage === '/ordershirt' || lowerMessage === '/orderjacket' || lowerMessage === '/ordertrouser') {
+  // Order category shortcuts with security check
+  if (lowerMessage === '/shirting' || lowerMessage === '/jacket' || lowerMessage === '/trouser') {
     if (!(await hasFeatureAccess(from, 'order'))) {
-        await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
-        return res.sendStatus(200);
+      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
+      return res.sendStatus(200);
     }
 
     const categoryMap = {
-        '/ordershirt': 'Order Shirt',
-        '/orderjacket': 'Order Jacket', 
-        '/ordertrouser': 'Order Trouser'
+      '/shirting': 'Shirting',
+      '/jacket': 'Jacket', 
+      '/trouser': 'Trouser'
     };
-
+    
     const category = categoryMap[lowerMessage];
     userStates[from] = { currentMenu: 'order_number_input', category: category, timestamp: Date.now() };
     
@@ -2307,17 +2146,16 @@ if (lowerMessage === '/ordershirt' || lowerMessage === '/orderjacket' || lowerMe
 
 Please enter your Order Number(s) or search terms:
 
-Full order: ${category === 'Order Shirt' ? 'B-J3005Z-1-1' : category === 'Order Jacket' ? 'GT54695O-1-1, D47727S-1-2' : 'TR54695O-1-1'}
-Partial search: ${category === 'Order Shirt' ? 'J3005Z, J300, 1234' : category === 'Order Jacket' ? 'GT546, D477, 1234' : 'TR546, 1234'}
-Multiple: ${category === 'Order Shirt' ? 'J3005Z, J300, ABC123' : category === 'Order Jacket' ? 'GT546, D477, ABC123' : 'TR546, ABC123'}
+Full order: ${category === 'Shirting' ? 'B-J3005Z-1-1' : category === 'Jacket' ? 'GT54695O-1-1, D47727S-1-2' : 'TR54695O-1-1'}
+Partial search: ${category === 'Shirting' ? 'J3005Z, J300, 1234' : category === 'Jacket' ? 'GT546, D477, 1234' : 'TR546, 1234'}
+Multiple: ${category === 'Shirting' ? 'J3005Z, J300, ABC123' : category === 'Jacket' ? 'GT546, D477, ABC123' : 'TR546, ABC123'}
 
 Type your search terms below or / to go back:`;
     
     const finalMessage = formatGreetingMessage(greeting, orderQuery);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
-}
-
+  }
 
   // Direct ticket shortcuts
   if (lowerMessage === '/helpticket') {
@@ -2395,16 +2233,15 @@ Type /menu for main menu or / to go back`;
     // ORDER QUERY OPTION (2)
     if (trimmedMessage === '2' && (await hasFeatureAccess(from, 'order'))) {
       userStates[from] = { currentMenu: 'order_query', timestamp: Date.now() };
-     const orderQueryMenu = `*ORDER QUERY*
+      const orderQueryMenu = `*ORDER QUERY*
 
 Please select the product category:
 
-1. Order Shirt
-2. Order Jacket  
-3. Order Trouser
+1. Shirting
+2. Jacket  
+3. Trouser
 
 Type the number to continue or / to go back`;
-
       
       await sendWhatsAppMessage(from, orderQueryMenu, productId, phoneId);
       return res.sendStatus(200);
@@ -2455,9 +2292,8 @@ Type your search terms below or / to go back:`;
   // Handle order query category selection
   if (userStates[from] && userStates[from].currentMenu === 'order_query') {
     if (trimmedMessage === '1') {
-    userStates[from] = { currentMenu: 'order_number_input', category: 'Order Shirt', timestamp: Date.now() };
-    await sendWhatsAppMessage(from, `*ORDER SHIRT ORDER QUERY*
-
+      userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting', timestamp: Date.now() };
+      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*
 
 Please enter your Order Number(s) or search terms:
 
@@ -2469,10 +2305,9 @@ Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-   if (trimmedMessage === '2') {
-    userStates[from] = { currentMenu: 'order_number_input', category: 'Order Jacket', timestamp: Date.now() };
-    await sendWhatsAppMessage(from, `*ORDER JACKET ORDER QUERY*
-
+    if (trimmedMessage === '2') {
+      userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket', timestamp: Date.now() };
+      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*
 
 Please enter your Order Number(s) or search terms:
 
@@ -2485,8 +2320,8 @@ Type your search terms below or / to go back:`, productId, phoneId);
     }
 
     if (trimmedMessage === '3') {
-    userStates[from] = { currentMenu: 'order_number_input', category: 'Order Trouser', timestamp: Date.now() };
-    await sendWhatsAppMessage(from, `*ORDER TROUSER ORDER QUERY*
+      userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser', timestamp: Date.now() };
+      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*
 
 Please enter your Order Number(s) or search terms:
 
@@ -2542,10 +2377,9 @@ app.listen(PORT, () => {
   console.log('   /menu - Main menu (from anywhere)');
   console.log('   /stock - Direct stock query (from anywhere)');
   console.log('   /order - Order query menu (from anywhere)');
-  console.log('   /ordershirt - Direct shirt orders (from anywhere)');
-console.log('   /orderjacket - Direct jacket orders (from anywhere)'); 
-console.log('   /ordertrouser - Direct trouser orders (from anywhere)');
-
+  console.log('   /shirting - Direct shirting orders (from anywhere)');
+  console.log('   /jacket - Direct jacket orders (from anywhere)'); 
+  console.log('   /trouser - Direct trouser orders (from anywhere)');
   console.log('   /helpticket - Direct help ticket (from anywhere)');
   console.log('   /delegation - Direct delegation (from anywhere)');
   console.log('');
