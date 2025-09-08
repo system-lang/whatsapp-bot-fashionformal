@@ -2292,14 +2292,12 @@ if (lowerMessage === '/ordershirt' || lowerMessage === '/orderjacket' || lowerMe
         return res.sendStatus(200);
     }
 
+    const categoryMap = {
+        '/ordershirt': 'Order Shirt',
+        '/orderjacket': 'Order Jacket', 
+        '/ordertrouser': 'Order Trouser'
+    };
 
-   const categoryMap = {
-  '/ordershirt': 'Order Shirt',
-  '/orderjacket': 'Order Jacket', 
-  '/ordertrouser': 'Order Trouser'
-};
-
-    
     const category = categoryMap[lowerMessage];
     userStates[from] = { currentMenu: 'order_number_input', category: category, timestamp: Date.now() };
     
@@ -2309,16 +2307,17 @@ if (lowerMessage === '/ordershirt' || lowerMessage === '/orderjacket' || lowerMe
 
 Please enter your Order Number(s) or search terms:
 
-Full order: ${category === 'Shirting' ? 'B-J3005Z-1-1' : category === 'Jacket' ? 'GT54695O-1-1, D47727S-1-2' : 'TR54695O-1-1'}
-Partial search: ${category === 'Shirting' ? 'J3005Z, J300, 1234' : category === 'Jacket' ? 'GT546, D477, 1234' : 'TR546, 1234'}
-Multiple: ${category === 'Shirting' ? 'J3005Z, J300, ABC123' : category === 'Jacket' ? 'GT546, D477, ABC123' : 'TR546, ABC123'}
+Full order: ${category === 'Order Shirt' ? 'B-J3005Z-1-1' : category === 'Order Jacket' ? 'GT54695O-1-1, D47727S-1-2' : 'TR54695O-1-1'}
+Partial search: ${category === 'Order Shirt' ? 'J3005Z, J300, 1234' : category === 'Order Jacket' ? 'GT546, D477, 1234' : 'TR546, 1234'}
+Multiple: ${category === 'Order Shirt' ? 'J3005Z, J300, ABC123' : category === 'Order Jacket' ? 'GT546, D477, ABC123' : 'TR546, ABC123'}
 
 Type your search terms below or / to go back:`;
     
     const finalMessage = formatGreetingMessage(greeting, orderQuery);
     await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
     return res.sendStatus(200);
-  }
+}
+
 
   // Direct ticket shortcuts
   if (lowerMessage === '/helpticket') {
