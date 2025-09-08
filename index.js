@@ -1351,14 +1351,15 @@ Please wait while I search for your order status.`, productId, phoneId);
         console.log(`Performing partial search for ${category}: ${cleanInput}`);
         
         let matchingOrders = [];
-        if (category === 'Jacket') {
-          matchingOrders = await searchJacketOrdersByPartialMatch(cleanInput);
-        } else if (category === 'Trouser') {
-          matchingOrders = await searchTrouserOrdersByPartialMatch(cleanInput);
-        } else {
-          // Default to Shirting/existing logic
-          matchingOrders = await searchOrdersByPartialMatch(cleanInput);
-        }
+if (category === 'Order Jacket') {
+    matchingOrders = await searchJacketOrdersByPartialMatch(cleanInput);
+} else if (category === 'Order Trouser') {
+    matchingOrders = await searchTrouserOrdersByPartialMatch(cleanInput);
+} else {
+    // Default to Order Shirt/existing logic
+    matchingOrders = await searchOrdersByPartialMatch(cleanInput);
+}
+
         
         partialMatches = partialMatches.concat(matchingOrders);
         
@@ -1367,14 +1368,15 @@ Please wait while I search for your order status.`, productId, phoneId);
         console.log(`Performing exact search for ${category}: ${cleanInput}`);
         
         let orderStatus;
-        if (category === 'Jacket') {
-          orderStatus = await searchJacketOrderStatus(cleanInput, category);
-        } else if (category === 'Trouser') {
-          orderStatus = await searchTrouserOrderStatus(cleanInput, category);
-        } else {
-          // Default to Shirting/existing logic
-          orderStatus = await searchOrderStatus(cleanInput, category);
-        }
+if (category === 'Order Jacket') {
+    orderStatus = await searchJacketOrderStatus(cleanInput, category);
+} else if (category === 'Order Trouser') {
+    orderStatus = await searchTrouserOrderStatus(cleanInput, category);
+} else {
+    // Default to Order Shirt/existing logic
+    orderStatus = await searchOrderStatus(cleanInput, category);
+}
+
         
         exactMatches.push({
           orderNumber: cleanInput,
@@ -2285,10 +2287,11 @@ Type the number to continue or / to go back`;
 
  // Order category shortcuts with security check
 if (lowerMessage === '/ordershirt' || lowerMessage === '/orderjacket' || lowerMessage === '/ordertrouser') {
-
-      await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
-      return res.sendStatus(200);
+    if (!(await hasFeatureAccess(from, 'order'))) {
+        await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
+        return res.sendStatus(200);
     }
+
 
    const categoryMap = {
   '/ordershirt': 'Order Shirt',
@@ -2453,8 +2456,9 @@ Type your search terms below or / to go back:`;
   // Handle order query category selection
   if (userStates[from] && userStates[from].currentMenu === 'order_query') {
     if (trimmedMessage === '1') {
-      userStates[from] = { currentMenu: 'order_number_input', category: 'Shirting', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*SHIRTING ORDER QUERY*
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Order Shirt', timestamp: Date.now() };
+    await sendWhatsAppMessage(from, `*ORDER SHIRT ORDER QUERY*
+
 
 Please enter your Order Number(s) or search terms:
 
@@ -2466,9 +2470,10 @@ Type your search terms below or / to go back:`, productId, phoneId);
       return res.sendStatus(200);
     }
 
-    if (trimmedMessage === '2') {
-      userStates[from] = { currentMenu: 'order_number_input', category: 'Jacket', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*JACKET ORDER QUERY*
+   if (trimmedMessage === '2') {
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Order Jacket', timestamp: Date.now() };
+    await sendWhatsAppMessage(from, `*ORDER JACKET ORDER QUERY*
+
 
 Please enter your Order Number(s) or search terms:
 
@@ -2481,8 +2486,8 @@ Type your search terms below or / to go back:`, productId, phoneId);
     }
 
     if (trimmedMessage === '3') {
-      userStates[from] = { currentMenu: 'order_number_input', category: 'Trouser', timestamp: Date.now() };
-      await sendWhatsAppMessage(from, `*TROUSER ORDER QUERY*
+    userStates[from] = { currentMenu: 'order_number_input', category: 'Order Trouser', timestamp: Date.now() };
+    await sendWhatsAppMessage(from, `*ORDER TROUSER ORDER QUERY*
 
 Please enter your Order Number(s) or search terms:
 
