@@ -2425,7 +2425,7 @@ Type your search terms below or / to go back:`;
       await processAllOrdersQuery(from, orderNumbers, productId, phoneId);
       return res.sendStatus(200);
     }
-  }
+  });
 
 
   // Handle smart stock query input with 40-second session management
@@ -2487,5 +2487,4 @@ app.listen(PORT, () => {
   console.log('   ✅ /debugtrouser debug command');
   console.log('');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows, /debugjacket, /debugtrouser');
-}
 });
