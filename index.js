@@ -2131,7 +2131,6 @@ console.log('from:', from);
 console.log('productId:', productId);
 console.log('phoneId:', phoneId);
 console.log('trimmedMessage:', trimmedMessage);
-console.log('lowerMessage:', lowerMessage);
 console.log('====================');
 
 
