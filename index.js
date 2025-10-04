@@ -2426,6 +2426,7 @@ Type your search terms below or / to go back:`;
   }
 
   return res.sendStatus(200);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
