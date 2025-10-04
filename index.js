@@ -2487,4 +2487,5 @@ app.listen(PORT, () => {
   console.log('   ✅ /debugtrouser debug command');
   console.log('');
   console.log('Debug commands: /debuggreet, /debugpermissions, /debugorder, /debugrows, /debugjacket, /debugtrouser');
+}
 });
