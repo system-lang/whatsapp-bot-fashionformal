@@ -2112,6 +2112,15 @@ app.post('/webhook', async (req, res) => {
   console.log('Full request body:', JSON.stringify(req.body, null, 2));
   console.log('Headers:', req.headers);
   console.log('======================');
+  console.log('=== PARSED VALUES ===');
+console.log('message:', message);
+console.log('from:', from);
+console.log('productId:', productId);
+console.log('phoneId:', phoneId);
+console.log('trimmedMessage:', trimmedMessage);
+console.log('lowerMessage:', lowerMessage);
+console.log('====================');
+
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
   const productId = req.body.product_id || req.body.productId;
