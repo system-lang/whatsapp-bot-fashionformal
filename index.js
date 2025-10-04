@@ -2108,6 +2108,10 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
 
 // MAIN WEBHOOK HANDLER
 app.post('/webhook', async (req, res) => {
+  console.log('=== WEBHOOK RECEIVED ===');
+  console.log('Full request body:', JSON.stringify(req.body, null, 2));
+  console.log('Headers:', req.headers);
+  console.log('======================');
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
   const productId = req.body.product_id || req.body.productId;
