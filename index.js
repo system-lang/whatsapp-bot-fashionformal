@@ -1638,9 +1638,16 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
     
     searchTerms.forEach(term => {
       const termResults = searchResults[term] || [];
-      totalResults += termResults.length;
       
       termResults.forEach(result => {
+        // Skip items with 0 or negative stock
+        const stockValue = parseFloat(result.stock);
+        if (isNaN(stockValue) || stockValue <= 0) {
+          return;
+        }
+        
+        totalResults++;
+        
         if (!allStoreGroups[result.store]) {
           allStoreGroups[result.store] = [];
         }
@@ -1652,6 +1659,8 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
     });
 
     Object.entries(allStoreGroups).forEach(([storeName, items]) => {
+      if (items.length === 0) return; // Skip stores with no valid items
+      
       doc.fontSize(16)
          .font('Helvetica-Bold')
          .text(storeName);
@@ -1706,7 +1715,6 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
     throw error;
   }
 }
-
 // Send file via Railway
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, permittedStores) {
   try {
