@@ -84,6 +84,7 @@ const JACKET_LIVE_SHEET_ID = '1XYXOv6C-aIuMVYDLSMflPZIQL7yJWq5BgnmDAnRMt58';
 const JACKET_LIVE_SHEET_NAME = 'FMS';
 const JACKET_COMPLETED_ORDER_FOLDER_ID = '1GmcGommmEBlP4iNPRA6NC4nbyFokCdY8';
 
+// NEW: Trouser Order Configuration
 const TROUSER_LIVE_SHEET_ID = '1y96TQMTrWXgAQmXqiXtcj3WGtdmcuMJS4F7a8OU_Sk4';
 const TROUSER_LIVE_SHEET_NAME = 'FMS';
 const TROUSER_COMPLETED_ORDER_FOLDER_ID = '104EOy6nU35CwZ_vlpjaCywC7yjlovIZ-';
@@ -116,6 +117,7 @@ const JACKET_PRODUCTION_STAGES = [
   { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
 ];
 
+// NEW: Trouser Production stages (same as jacket)
 const TROUSER_PRODUCTION_STAGES = [
   { name: 'CUT', column: 'T', nextStage: 'FUS' },
   { name: 'FUS', column: 'Z', nextStage: 'Prep' },
@@ -165,7 +167,7 @@ function isValidBotInteraction(message, userState) {
     switch (userState.currentMenu) {
       case 'main':
         return ['1', '2', '3', '4'].includes(message.trim());
-      case 'order_number_input':
+      case 'order_number_input': // MODIFIED: Remove order_query state check
       case 'order_followup':
         return message.trim().length > 0;
       case 'smart_stock_query':
@@ -251,11 +253,13 @@ function formatStockQuantity(stockValue) {
   return stockValue.toString();
 }
 
+// MODIFIED: Updated goBackOneStep to handle new direct order flow
 function goBackOneStep(from) {
   if (!userStates[from]) return false;
   
   const currentMenu = userStates[from].currentMenu;
   
+  // REMOVED: order_query state handling since we skip that menu
   if (currentMenu === 'order_number_input') {
     userStates[from] = { currentMenu: 'main', timestamp: Date.now() };
     return true;
@@ -322,8 +326,7 @@ function isWithinOrderQueryWindow(from) {
   
   return (now - lastQuery) < twoMinutes;  
 }
-
-// ENHANCED: Production Stage Functions - Now return structured data for PDF
+// Production Stage Functions (UNCHANGED)
 function checkProductionStages(row) {
   try {
     let lastCompletedStage = null;
@@ -345,11 +348,7 @@ function checkProductionStages(row) {
     }
 
     if (!hasAnyStage) {
-      return { 
-        message: 'Order is currently under process',
-        currentStage: 'Under Process',
-        nextStage: 'CUT'
-      };
+      return { message: 'Order is currently under process' };
     }
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
@@ -362,34 +361,20 @@ function checkProductionStages(row) {
       
       const formattedDate = formatDateForDisplay(rawDispatchDate);
       
-      return { 
-        message: `Order has been dispatched from HO on ${formattedDate}`,
-        currentStage: 'Dispatched',
-        nextStage: 'COMPLETED'
-      };
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
     if (lastCompletedStage) {
       return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage`,
-        currentStage: lastCompletedStage.name,
-        nextStage: lastCompletedStage.nextStage
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
       };
     }
 
-    return { 
-      message: 'Error determining order status',
-      currentStage: 'Unknown',
-      nextStage: 'Unknown'
-    };
+    return { message: 'Error determining order status' };
 
   } catch (error) {
     console.error('Error checking production stages:', error);
-    return { 
-      message: 'Error checking order status',
-      currentStage: 'Error',
-      nextStage: 'Unknown'
-    };
+    return { message: 'Error checking order status' };
   }
 }
 
@@ -414,11 +399,7 @@ function checkJacketProductionStages(row) {
     }
 
     if (!hasAnyStage) {
-      return { 
-        message: 'Order is currently under process',
-        currentStage: 'Under Process',
-        nextStage: 'CUT'
-      };
+      return { message: 'Order is currently under process' };
     }
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
@@ -431,34 +412,20 @@ function checkJacketProductionStages(row) {
       
       const formattedDate = formatDateForDisplay(rawDispatchDate);
       
-      return { 
-        message: `Order has been dispatched from HO on ${formattedDate}`,
-        currentStage: 'Dispatched',
-        nextStage: 'COMPLETED'
-      };
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
     if (lastCompletedStage) {
       return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage`,
-        currentStage: lastCompletedStage.name,
-        nextStage: lastCompletedStage.nextStage
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
       };
     }
 
-    return { 
-      message: 'Error determining order status',
-      currentStage: 'Unknown',
-      nextStage: 'Unknown'
-    };
+    return { message: 'Error determining order status' };
 
   } catch (error) {
     console.error('Error checking jacket production stages:', error);
-    return { 
-      message: 'Error checking order status',
-      currentStage: 'Error',
-      nextStage: 'Unknown'
-    };
+    return { message: 'Error checking order status' };
   }
 }
 
@@ -483,11 +450,7 @@ function checkTrouserProductionStages(row) {
     }
 
     if (!hasAnyStage) {
-      return { 
-        message: 'Order is currently under process',
-        currentStage: 'Under Process',
-        nextStage: 'CUT'
-      };
+      return { message: 'Order is currently under process' };
     }
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
@@ -500,36 +463,23 @@ function checkTrouserProductionStages(row) {
       
       const formattedDate = formatDateForDisplay(rawDispatchDate);
       
-      return { 
-        message: `Order has been dispatched from HO on ${formattedDate}`,
-        currentStage: 'Dispatched',
-        nextStage: 'COMPLETED'
-      };
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
     if (lastCompletedStage) {
       return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage`,
-        currentStage: lastCompletedStage.name,
-        nextStage: lastCompletedStage.nextStage
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
       };
     }
 
-    return { 
-      message: 'Error determining order status',
-      currentStage: 'Unknown',
-      nextStage: 'Unknown'
-    };
+    return { message: 'Error determining order status' };
 
   } catch (error) {
     console.error('Error checking trouser production stages:', error);
-    return { 
-      message: 'Error checking order status',
-      currentStage: 'Error',
-      nextStage: 'Unknown'
-    };
+    return { message: 'Error checking order status' };
   }
 }
+
 // User Permission Functions (UNCHANGED)
 async function getUserPermissions(phoneNumber) {
   try {
@@ -616,7 +566,7 @@ Please contact administrator for access.`;
   
   if (userPermissions.includes('order')) {
     menuItems.push('2. Order Query');
-    shortcuts.push('/order - Direct Order Search');
+    shortcuts.push('/order - Direct Order Search'); // MODIFIED: Updated text
     shortcuts.push('/shirting - Shirting Orders');
     shortcuts.push('/jacket - Jacket Orders');
     shortcuts.push('/trouser - Trouser Orders');
@@ -764,7 +714,7 @@ function formatGreetingMessage(greeting, mainMessage) {
   return `${greeting.salutation} ${greeting.name}\n\n${greeting.greetings}\n\n${mainMessage}`;
 }
 
-// ENHANCED: Unified Order Search Functions with structured data for PDF
+// NEW: UNIFIED ORDER SEARCH FUNCTIONS - Super Fast Parallel Search
 async function searchAllOrdersUnified(searchTerm) {
   const matchingOrders = [];
   
@@ -799,7 +749,7 @@ async function searchAllOrdersUnified(searchTerm) {
   }
 }
 
-// ENHANCED: Helper function for Shirting search with structured data
+// Helper function for Shirting search
 async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, drive) {
   const results = [];
   
@@ -828,9 +778,7 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
             orderNumber: orderNumber,
             message: stageStatus.message,
             location: 'Live Sheet',
-            productType: 'Shirting',
-            currentStage: stageStatus.currentStage,
-            nextStage: stageStatus.nextStage
+            productType: 'Shirting'
           });
         }
       }
@@ -874,9 +822,7 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
               location: 'Completed Orders',
-              productType: 'Shirting',
-              currentStage: 'Dispatched',
-              nextStage: 'COMPLETED'
+              productType: 'Shirting'
             });
           }
         }
@@ -892,7 +838,7 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
   return results;
 }
 
-// ENHANCED: Helper function for Jacket search with structured data
+// Helper function for Jacket search
 async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, drive) {
   const results = [];
   
@@ -921,9 +867,7 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
             orderNumber: orderNumber,
             message: stageStatus.message,
             location: 'Live Sheet',
-            productType: 'Jacket',
-            currentStage: stageStatus.currentStage,
-            nextStage: stageStatus.nextStage
+            productType: 'Jacket'
           });
         }
       }
@@ -967,9 +911,7 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
               location: 'Completed Orders',
-              productType: 'Jacket',
-              currentStage: 'Dispatched',
-              nextStage: 'COMPLETED'
+              productType: 'Jacket'
             });
           }
         }
@@ -985,7 +927,7 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
   return results;
 }
 
-// ENHANCED: Helper function for Trouser search with structured data
+// Helper function for Trouser search
 async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, drive) {
   const results = [];
   
@@ -1014,9 +956,7 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
             orderNumber: orderNumber,
             message: stageStatus.message,
             location: 'Live Sheet',
-            productType: 'Trouser',
-            currentStage: stageStatus.currentStage,
-            nextStage: stageStatus.nextStage
+            productType: 'Trouser'
           });
         }
       }
@@ -1060,9 +1000,7 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
               location: 'Completed Orders',
-              productType: 'Trouser',
-              currentStage: 'Dispatched',
-              nextStage: 'COMPLETED'
+              productType: 'Trouser'
             });
           }
         }
@@ -1078,157 +1016,7 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
   return results;
 }
 
-// NEW: Order Results PDF Generation Function
-async function generateOrderResultsPDF(orderResults, searchTerms, phoneNumber) {
-  try {
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-    const filename = `order_results_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
-    const filepath = path.join(__dirname, 'temp', filename);
-    
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    const doc = new PDFDocument({
-      margin: 40,
-      size: 'A4'
-    });
-
-    const stream = fs.createWriteStream(filepath);
-    doc.pipe(stream);
-
-    // Header
-    doc.fontSize(18)
-       .font('Helvetica-Bold')
-       .text('ORDER SEARCH RESULTS', { align: 'center' });
-    
-    doc.moveDown(0.5);
-    
-    doc.fontSize(10)
-       .font('Helvetica')
-       .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
-       .text(`Search Terms: ${searchTerms.join(', ')}`)
-       .text(`Phone: ${phoneNumber}`)
-       .text(`Total Results: ${orderResults.length}`)
-       .moveDown();
-
-    // Horizontal line
-    doc.moveTo(40, doc.y)
-       .lineTo(555, doc.y)
-       .stroke();
-    doc.moveDown(0.5);
-
-    // Table Header
-    const tableTop = doc.y;
-    const categoryX = 50;
-    const orderNoX = 140;
-    const currentStageX = 280;
-    const nextStageX = 420;
-    const rowHeight = 25;
-
-    doc.fontSize(12)
-       .font('Helvetica-Bold');
-
-    // Header background (light gray)
-    doc.rect(40, tableTop, 515, rowHeight)
-       .fill('#f0f0f0')
-       .stroke();
-
-    // Header text
-    doc.fillColor('black')
-       .text('Category', categoryX, tableTop + 8)
-       .text('Order Number', orderNoX, tableTop + 8)
-       .text('Current Stage', currentStageX, tableTop + 8)
-       .text('Next Stage', nextStageX, tableTop + 8);
-
-    let currentY = tableTop + rowHeight;
-
-    // Table rows
-    doc.fontSize(9)
-       .font('Helvetica');
-
-    orderResults.forEach((result, index) => {
-      // Alternate row colors
-      const fillColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
-      
-      doc.rect(40, currentY, 515, rowHeight)
-         .fill(fillColor)
-         .stroke();
-
-      doc.fillColor('black')
-         .text(result.productType, categoryX, currentY + 8)
-         .text(result.orderNumber, orderNoX, currentY + 8)
-         .text(result.currentStage, currentStageX, currentY + 8)
-         .text(result.nextStage, nextStageX, currentY + 8);
-
-      currentY += rowHeight;
-
-      // Check if we need a new page
-      if (currentY > 750) {
-        doc.addPage();
-        currentY = 50;
-      }
-    });
-
-    // Footer
-    doc.fontSize(8)
-       .font('Helvetica')
-       .text(`Generated by WhatsApp Bot - ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, 
-             40, doc.page.height - 50, { align: 'center' });
-
-    doc.end();
-
-    await new Promise((resolve, reject) => {
-      stream.on('finish', resolve);
-      stream.on('error', reject);
-    });
-
-    return { filepath, filename, totalResults: orderResults.length };
-
-  } catch (error) {
-    console.error('Error generating order results PDF:', error);
-    throw error;
-  }
-}
-
-// NEW: Send order PDF file via Railway
-async function sendOrderPDFFile(to, filepath, filename, productId, phoneId) {
-  try {
-    const fileStats = fs.statSync(filepath);
-    const fileSizeKB = Math.round(fileStats.size / 1024);
-
-    const baseUrl = 'https://whatsapp-bot-fashionformal-production.up.railway.app';
-    const downloadUrl = `${baseUrl}/download/${filename}`;
-
-    const message = `*ORDER RESULTS PDF GENERATED*
-
-File: ${filename}
-Size: ${fileSizeKB} KB
-
-Download your PDF:
-${downloadUrl}
-
-📋 Contains tabular results with:
-• Category (Shirting/Jacket/Trouser)
-• Order Numbers
-• Current Production Stages  
-• Next Stages
-
-Click the link above to download
-Works on mobile and desktop
-Link expires in 5 minutes
-
-Type /menu for main menu`;
-
-    await sendWhatsAppMessage(to, message, productId, phoneId);
-
-  } catch (error) {
-    console.error('Error creating order PDF download link:', error);
-  }
-}
-
-// ENHANCED: Modified unified processOrderQuery function with PDF generation
+// MODIFIED: New unified processOrderQuery function
 async function processOrderQuery(from, orderNumbers, productId, phoneId, isFollowUp = false) {
   try {
     if (!isFollowUp) {
@@ -1277,8 +1065,8 @@ Please wait while I search across all product types.`, productId, phoneId);
       return;
     }
 
-    // MODIFIED: If 3 or fewer results, show in WhatsApp message
-    if (uniqueResults.length <= 3) {
+    // If 5 or fewer results, show in WhatsApp message
+    if (uniqueResults.length <= 5) {
       let responseMessage = isFollowUp ? `*ADDITIONAL ORDER SEARCH*\n\n` : `*ORDER SEARCH RESULTS*\n\n`;
       
       // Group results by product type for better display
@@ -1311,41 +1099,17 @@ Please wait while I search across all product types.`, productId, phoneId);
       };
       
     } else {
-      // NEW: More than 3 results - generate PDF with tabular format
-      try {
-        const pdfResult = await generateOrderResultsPDF(uniqueResults, orderNumbers, from);
-        
-        const summaryMessage = `*LARGE ORDER RESULTS FOUND*
+      // More than 5 results - notify user
+      await sendWhatsAppMessage(from, `*Large Results Found*
 
-Search Terms: ${orderNumbers.join(', ')}
-Total Results: ${uniqueResults.length} orders
-PDF Generated: ${pdfResult.filename}
+Found ${uniqueResults.length} orders across all product types.
+Results are too many for WhatsApp display.
 
-Results include orders from:
-• Shirting: ${uniqueResults.filter(r => r.productType === 'Shirting').length} orders
-• Jacket: ${uniqueResults.filter(r => r.productType === 'Jacket').length} orders  
-• Trouser: ${uniqueResults.filter(r => r.productType === 'Trouser').length} orders
-
-PDF contains tabular format with Category, Order No, Current Stage, Next Stage
-
-Type /menu for main menu`;
-        
-        await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
-        await sendOrderPDFFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId);
-        
-        delete userStates[from];
-        
-      } catch (pdfError) {
-        console.error('PDF generation failed:', pdfError);
-        await sendWhatsAppMessage(from, `*ERROR GENERATING PDF*
-
-Found ${uniqueResults.length} results but could not generate PDF.
-Please try with more specific search terms or contact support.
+Please use more specific search terms or contact support for detailed results.
 
 Type /menu for main menu`, productId, phoneId);
-        
-        delete userStates[from];
-      }
+      
+      delete userStates[from];
     }
     
   } catch (error) {
@@ -1840,7 +1604,7 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
   }
 }
 
-// ENHANCED MAIN WEBHOOK HANDLER - MODIFIED FOR DIRECT ORDER INPUT + PDF GENERATION
+// MAIN WEBHOOK HANDLER - MODIFIED FOR DIRECT ORDER INPUT
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -1930,6 +1694,7 @@ app.post('/webhook', async (req, res) => {
         const finalMessage = formatGreetingMessage(greeting, personalizedMenu);
         await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       }
+      // REMOVED: order_query case since we skip that menu
     } else {
       await sendWhatsAppMessage(from, 'Cannot go back further. Type /menu for main menu.', productId, phoneId);
     }
@@ -1985,7 +1750,7 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
-  // ENHANCED: Direct Order Query shortcut - No more category selection + PDF generation
+  // MODIFIED: Direct Order Query shortcut - No more category selection
   if (lowerMessage === '/order') {
     if (!(await hasFeatureAccess(from, 'order'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
@@ -2009,10 +1774,6 @@ Multiple: J3005Z, GT546, TR546, ABC123
 • Jacket orders  
 • Trouser orders
 
-📋 Results format:
-• ≤3 results: WhatsApp message
-• >3 results: PDF with Category, Order No, Current Stage, Next Stage
-
 Type your search terms below or / to go back:`;
     
     const finalMessage = formatGreetingMessage(greeting, orderQueryPrompt);
@@ -2020,7 +1781,7 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
-  // ENHANCED: Order category shortcuts - Now go direct to unified search with PDF capability
+  // MODIFIED: Order category shortcuts - Now go direct to unified search
   if (lowerMessage === '/shirting' || lowerMessage === '/jacket' || lowerMessage === '/trouser') {
     if (!(await hasFeatureAccess(from, 'order'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
@@ -2050,10 +1811,6 @@ Multiple: ${category === 'Shirting' ? 'J3005Z, J300, ABC123' : category === 'Jac
 • Shirting orders
 • Jacket orders
 • Trouser orders
-
-📋 Results format:
-• ≤3 results: WhatsApp message
-• >3 results: PDF with Category, Order No, Current Stage, Next Stage
 
 Type your search terms below or / to go back:`;
     
@@ -2107,7 +1864,7 @@ Type /menu for main menu or / to go back`;
       const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
       
       if (orderNumbers.length > 0) {
-        await processOrderQuery(from, orderNumbers, productId, phoneId, true);
+        await processOrderQuery(from, orderNumbers, productId, phoneId, true); // MODIFIED: Removed category
         return res.sendStatus(200);
       }
     } else {
@@ -2115,7 +1872,7 @@ Type /menu for main menu or / to go back`;
     }
   }
 
-  // Handle menu selections (ENHANCED - Updated for direct order access with PDF capability)
+  // Handle menu selections (MODIFIED - Removed option 2 order category selection)
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     
     // TICKET OPTION (1) (UNCHANGED)
@@ -2135,7 +1892,7 @@ Type /menu for main menu or / to go back`;
       return res.sendStatus(200);
     }
 
-    // ENHANCED: ORDER QUERY OPTION (2) - Go direct to unified search with PDF generation
+    // MODIFIED: ORDER QUERY OPTION (2) - Go direct to unified search
     if (trimmedMessage === '2' && (await hasFeatureAccess(from, 'order'))) {
       userStates[from] = { currentMenu: 'order_number_input', timestamp: Date.now() };
       
@@ -2153,10 +1910,6 @@ Multiple: J3005Z, GT546, TR546, ABC123
 • Shirting orders
 • Jacket orders
 • Trouser orders
-
-📋 Results format:
-• ≤3 results: WhatsApp message
-• >3 results: PDF with Category, Order No, Current Stage, Next Stage
 
 Type your search terms below or / to go back:`;
       
@@ -2206,12 +1959,14 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
-  // ENHANCED: Handle order number input - Now uses unified search with PDF generation
+  // REMOVED: Order query category selection handler (no longer needed)
+
+  // MODIFIED: Handle order number input - Now uses unified search
   if (userStates[from] && userStates[from].currentMenu === 'order_number_input') {
     if (trimmedMessage !== '/menu' && trimmedMessage !== '/') {
       const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
       
-      await processOrderQuery(from, orderNumbers, productId, phoneId);
+      await processOrderQuery(from, orderNumbers, productId, phoneId); // MODIFIED: Removed category parameter
       return res.sendStatus(200);
     }
   }
@@ -2231,12 +1986,11 @@ Type your search terms below or / to go back:`;
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
-  console.log('✅ MAJOR UPDATE: Enhanced Direct Order Input + PDF Generation');
+  console.log('✅ MAJOR UPDATE: Direct Order Input System Activated');
   console.log('✅ REMOVED: Order category selection menu (1, 2, 3)');
   console.log('✅ NEW: Unified search across ALL product types simultaneously');
   console.log('✅ NEW: Super fast parallel searching with Promise.all()');
   console.log('✅ NEW: Smart result grouping by product type');
-  console.log('✅ NEW: PDF generation for >3 results with tabular format');
   console.log('✅ ENHANCED: /order now goes directly to unified search');
   console.log('✅ All other functions remain completely intact');
   console.log('');
@@ -2252,24 +2006,16 @@ app.listen(PORT, () => {
   console.log('   - Direct order number input');
   console.log('   - Instant results grouping by product type');
   console.log('');
-  console.log('📋 NEW PDF FEATURES:');
-  console.log('   - Tabular format: Category | Order No | Current Stage | Next Stage');
-  console.log('   - Professional table design with alternating row colors');
-  console.log('   - ≤3 results: WhatsApp display');
-  console.log('   - >3 results: PDF generation automatically');
-  console.log('   - Category breakdown in summary message');
-  console.log('');
   console.log('🔍 UNIFIED SEARCH FEATURES:');
   console.log('   - Searches ALL sheets simultaneously');
   console.log('   - Groups results by product type automatically');
   console.log('   - Handles partial and exact matches');
   console.log('   - Removes duplicate results intelligently');
-  console.log('   - Enhanced production stage tracking');
+  console.log('   - Displays up to 5 results in WhatsApp');
   console.log('');
-  console.log('📱 ENHANCED USER EXPERIENCE:');
+  console.log('📱 USER EXPERIENCE:');
   console.log('   - Type /order -> directly enter order numbers');
   console.log('   - No more "1. Shirting 2. Jacket 3. Trouser" menu');
   console.log('   - Get results from all product types instantly');
   console.log('   - Clear product type labels in results');
-  console.log('   - Professional PDF for large result sets');
 });
