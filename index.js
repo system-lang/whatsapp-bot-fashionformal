@@ -243,6 +243,48 @@ function formatDateForDisplay(rawDate) {
   return dateStr;
 }
 
+function formatDateWithSuffix(rawDate) {
+  if (!rawDate || rawDate === '') {
+    return 'Date not available';
+  }
+
+  let jsDate = null;
+  const dateStr = rawDate.toString().trim();
+
+  // Try normal date string
+  if (dateStr.includes('/') || dateStr.includes('-') || dateStr.includes(' ')) {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      jsDate = parsed;
+    }
+  } else {
+    // Try Google Sheets serial number
+    const dateNum = parseFloat(dateStr);
+    if (!isNaN(dateNum) && dateNum > 1000) {
+      jsDate = new Date((dateNum - 25569) * 86400 * 1000);
+    }
+  }
+
+  if (!jsDate || isNaN(jsDate.getTime())) {
+    return dateStr;
+  }
+
+  const day = jsDate.getDate();
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = monthNames[jsDate.getMonth()];
+  const year = jsDate.getFullYear();
+
+  const j = day % 10, k = day % 100;
+  let suffix = 'th';
+  if (j === 1 && k !== 11) suffix = 'st';
+  else if (j === 2 && k !== 12) suffix = 'nd';
+  else if (j === 3 && k !== 13) suffix = 'rd';
+
+  return `${day}${suffix} ${month} ${year}`;
+}
+
+
 function formatStockQuantity(stockValue) {
   if (!stockValue || stockValue === '') return stockValue;
   
