@@ -91,45 +91,46 @@ const TROUSER_COMPLETED_ORDER_FOLDER_ID = '104EOy6nU35CwZ_vlpjaCywC7yjlovIZ-';
 
 // Production stages configurations
 const PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'T', nextStage: 'FUS' },
-  { name: 'FUS', column: 'Z', nextStage: 'PAS' },
-  { name: 'PAS', column: 'AF', nextStage: 'MAK' },
-  { name: 'MAK', column: 'AL', nextStage: 'BH' },
-  { name: 'BH', column: 'AX', nextStage: 'BS' },
-  { name: 'BS', column: 'BD', nextStage: 'QC' },
-  { name: 'QC', column: 'BJ', nextStage: 'ALT' },
-  { name: 'ALT', column: 'BP', nextStage: 'IRO' },
-  { name: 'IRO', column: 'BY', nextStage: 'Dispatch (Factory)' },
-  { name: 'Dispatch (Factory)', column: 'CE', nextStage: 'Dispatch (HO)' },
-  { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CL' }
+  { name: 'CUT', column: 'T' },
+  { name: 'FUS', column: 'Z' },
+  { name: 'PAS', column: 'AF' },
+  { name: 'MAK', column: 'AL' },
+  { name: 'BH',  column: 'AX' },
+  { name: 'BS',  column: 'BD' },
+  { name: 'QC',  column: 'BJ' },
+  { name: 'ALT', column: 'BP' },
+  { name: 'IRO', column: 'BY' },
+  { name: 'Dispatch (Factory)', column: 'CE' },
+  { name: 'Dispatch (HO)',      column: 'CL', dispatchDateColumn: 'CL' }
 ];
 
 const JACKET_PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'T', nextStage: 'FUS' },
-  { name: 'FUS', column: 'Z', nextStage: 'Prep' },
-  { name: 'Prep', column: 'AF', nextStage: 'MAK' },
-  { name: 'MAK', column: 'AL', nextStage: 'QC1' },
-  { name: 'QC1', column: 'AR', nextStage: 'BH' },
-  { name: 'BH', column: 'AX', nextStage: 'Press' },
-  { name: 'Press', column: 'BD', nextStage: 'QC2' },
-  { name: 'QC2', column: 'BJ', nextStage: 'Dispatch (Factory)' },
-  { name: 'Dispatch (Factory)', column: 'BP', nextStage: 'Dispatch (HO)' },
-  { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
+  { name: 'CUT', column: 'T' },
+  { name: 'FUS', column: 'Z' },
+  { name: 'Prep', column: 'AF' },
+  { name: 'MAK', column: 'AL' },
+  { name: 'QC1', column: 'AR' },
+  { name: 'BH',  column: 'AX' },
+  { name: 'Press', column: 'BD' },
+  { name: 'QC2', column: 'BJ' },
+  { name: 'Dispatch (Factory)', column: 'BP' },
+  { name: 'Dispatch (HO)',      column: 'BW', dispatchDateColumn: 'BW' }
 ];
 
 // NEW: Trouser Production stages (same as jacket)
 const TROUSER_PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'T', nextStage: 'FUS' },
-  { name: 'FUS', column: 'Z', nextStage: 'Prep' },
-  { name: 'Prep', column: 'AF', nextStage: 'MAK' },
-  { name: 'MAK', column: 'AL', nextStage: 'QC1' },
-  { name: 'QC1', column: 'AR', nextStage: 'BH' },
-  { name: 'BH', column: 'AX', nextStage: 'Press' },
-  { name: 'Press', column: 'BD', nextStage: 'QC2' },
-  { name: 'QC2', column: 'BJ', nextStage: 'Dispatch (Factory)' },
-  { name: 'Dispatch (Factory)', column: 'BP', nextStage: 'Dispatch (HO)' },
-  { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
+  { name: 'CUT', column: 'T' },
+  { name: 'FUS', column: 'Z' },
+  { name: 'Prep', column: 'AF' },
+  { name: 'MAK', column: 'AL' },
+  { name: 'QC1', column: 'AR' },
+  { name: 'BH',  column: 'AX' },
+  { name: 'Press', column: 'BD' },
+  { name: 'QC2', column: 'BJ' },
+  { name: 'Dispatch (Factory)', column: 'BP' },
+  { name: 'Dispatch (HO)',      column: 'BW', dispatchDateColumn: 'BW' }
 ];
+
 
 // Utility Functions
 function isStockSessionExpired(userState) {
@@ -326,23 +327,24 @@ function isWithinOrderQueryWindow(from) {
   
   return (now - lastQuery) < twoMinutes;  
 }
-// Production Stage Functions (UNCHANGED)
 function checkProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
+    let lastStageDate = '';
 
     for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
       const stage = PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
-      
+
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
-      
-      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+
+      if (cellValue !== '') {
         lastCompletedStage = stage;
+        lastStageDate = cellValue;
         hasAnyStage = true;
       }
     }
@@ -353,24 +355,18 @@ function checkProductionStages(row) {
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-      
+
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
-      
-      const formattedDate = formatDateForDisplay(rawDispatchDate);
-      
+
+      const formattedDate = formatDateWithSuffix(rawDispatchDate);
       return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
-    if (lastCompletedStage) {
-      return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
-      };
-    }
-
-    return { message: 'Error determining order status' };
+    const formattedStageDate = formatDateWithSuffix(lastStageDate);
+    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
 
   } catch (error) {
     console.error('Error checking production stages:', error);
@@ -378,22 +374,25 @@ function checkProductionStages(row) {
   }
 }
 
+
 function checkJacketProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
+    let lastStageDate = '';
 
     for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
       const stage = JACKET_PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
-      
+
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
-      
-      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+
+      if (cellValue !== '') {
         lastCompletedStage = stage;
+        lastStageDate = cellValue;
         hasAnyStage = true;
       }
     }
@@ -404,24 +403,18 @@ function checkJacketProductionStages(row) {
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-      
+
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
-      
-      const formattedDate = formatDateForDisplay(rawDispatchDate);
-      
+
+      const formattedDate = formatDateWithSuffix(rawDispatchDate);
       return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
-    if (lastCompletedStage) {
-      return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
-      };
-    }
-
-    return { message: 'Error determining order status' };
+    const formattedStageDate = formatDateWithSuffix(lastStageDate);
+    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
 
   } catch (error) {
     console.error('Error checking jacket production stages:', error);
@@ -429,22 +422,25 @@ function checkJacketProductionStages(row) {
   }
 }
 
+
 function checkTrouserProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
+    let lastStageDate = '';
 
     for (let i = 0; i < TROUSER_PRODUCTION_STAGES.length; i++) {
       const stage = TROUSER_PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
-      
+
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
-      
-      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
+
+      if (cellValue !== '') {
         lastCompletedStage = stage;
+        lastStageDate = cellValue;
         hasAnyStage = true;
       }
     }
@@ -455,24 +451,18 @@ function checkTrouserProductionStages(row) {
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-      
+
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
-      
-      const formattedDate = formatDateForDisplay(rawDispatchDate);
-      
+
+      const formattedDate = formatDateWithSuffix(rawDispatchDate);
       return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
-    if (lastCompletedStage) {
-      return { 
-        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
-      };
-    }
-
-    return { message: 'Error determining order status' };
+    const formattedStageDate = formatDateWithSuffix(lastStageDate);
+    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
 
   } catch (error) {
     console.error('Error checking trouser production stages:', error);
