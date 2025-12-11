@@ -91,46 +91,45 @@ const TROUSER_COMPLETED_ORDER_FOLDER_ID = '104EOy6nU35CwZ_vlpjaCywC7yjlovIZ-';
 
 // Production stages configurations
 const PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'T' },
-  { name: 'FUS', column: 'Z' },
-  { name: 'PAS', column: 'AF' },
-  { name: 'MAK', column: 'AL' },
-  { name: 'BH',  column: 'AX' },
-  { name: 'BS',  column: 'BD' },
-  { name: 'QC',  column: 'BJ' },
-  { name: 'ALT', column: 'BP' },
-  { name: 'IRO', column: 'BY' },
-  { name: 'Dispatch (Factory)', column: 'CE' },
-  { name: 'Dispatch (HO)',      column: 'CL', dispatchDateColumn: 'CL' }
+  { name: 'CUT', column: 'T', nextStage: 'FUS' },
+  { name: 'FUS', column: 'Z', nextStage: 'PAS' },
+  { name: 'PAS', column: 'AF', nextStage: 'MAK' },
+  { name: 'MAK', column: 'AL', nextStage: 'BH' },
+  { name: 'BH', column: 'AX', nextStage: 'BS' },
+  { name: 'BS', column: 'BD', nextStage: 'QC' },
+  { name: 'QC', column: 'BJ', nextStage: 'ALT' },
+  { name: 'ALT', column: 'BP', nextStage: 'IRO' },
+  { name: 'IRO', column: 'BY', nextStage: 'Dispatch (Factory)' },
+  { name: 'Dispatch (Factory)', column: 'CE', nextStage: 'Dispatch (HO)' },
+  { name: 'Dispatch (HO)', column: 'CL', nextStage: 'COMPLETED', dispatchDateColumn: 'CL' }
 ];
 
 const JACKET_PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'T' },
-  { name: 'FUS', column: 'Z' },
-  { name: 'Prep', column: 'AF' },
-  { name: 'MAK', column: 'AL' },
-  { name: 'QC1', column: 'AR' },
-  { name: 'BH',  column: 'AX' },
-  { name: 'Press', column: 'BD' },
-  { name: 'QC2', column: 'BJ' },
-  { name: 'Dispatch (Factory)', column: 'BP' },
-  { name: 'Dispatch (HO)',      column: 'BW', dispatchDateColumn: 'BW' }
+  { name: 'CUT', column: 'T', nextStage: 'FUS' },
+  { name: 'FUS', column: 'Z', nextStage: 'Prep' },
+  { name: 'Prep', column: 'AF', nextStage: 'MAK' },
+  { name: 'MAK', column: 'AL', nextStage: 'QC1' },
+  { name: 'QC1', column: 'AR', nextStage: 'BH' },
+  { name: 'BH', column: 'AX', nextStage: 'Press' },
+  { name: 'Press', column: 'BD', nextStage: 'QC2' },
+  { name: 'QC2', column: 'BJ', nextStage: 'Dispatch (Factory)' },
+  { name: 'Dispatch (Factory)', column: 'BP', nextStage: 'Dispatch (HO)' },
+  { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
 ];
 
 // NEW: Trouser Production stages (same as jacket)
 const TROUSER_PRODUCTION_STAGES = [
-  { name: 'CUT', column: 'T' },
-  { name: 'FUS', column: 'Z' },
-  { name: 'Prep', column: 'AF' },
-  { name: 'MAK', column: 'AL' },
-  { name: 'QC1', column: 'AR' },
-  { name: 'BH',  column: 'AX' },
-  { name: 'Press', column: 'BD' },
-  { name: 'QC2', column: 'BJ' },
-  { name: 'Dispatch (Factory)', column: 'BP' },
-  { name: 'Dispatch (HO)',      column: 'BW', dispatchDateColumn: 'BW' }
+  { name: 'CUT', column: 'T', nextStage: 'FUS' },
+  { name: 'FUS', column: 'Z', nextStage: 'Prep' },
+  { name: 'Prep', column: 'AF', nextStage: 'MAK' },
+  { name: 'MAK', column: 'AL', nextStage: 'QC1' },
+  { name: 'QC1', column: 'AR', nextStage: 'BH' },
+  { name: 'BH', column: 'AX', nextStage: 'Press' },
+  { name: 'Press', column: 'BD', nextStage: 'QC2' },
+  { name: 'QC2', column: 'BJ', nextStage: 'Dispatch (Factory)' },
+  { name: 'Dispatch (Factory)', column: 'BP', nextStage: 'Dispatch (HO)' },
+  { name: 'Dispatch (HO)', column: 'BW', nextStage: 'COMPLETED', dispatchDateColumn: 'BW' }
 ];
-
 
 // Utility Functions
 function isStockSessionExpired(userState) {
@@ -243,48 +242,6 @@ function formatDateForDisplay(rawDate) {
   return dateStr;
 }
 
-function formatDateWithSuffix(rawDate) {
-  if (!rawDate || rawDate === '') {
-    return 'Date not available';
-  }
-
-  let jsDate = null;
-  const dateStr = rawDate.toString().trim();
-
-  // Try normal date string
-  if (dateStr.includes('/') || dateStr.includes('-') || dateStr.includes(' ')) {
-    const parsed = new Date(dateStr);
-    if (!isNaN(parsed.getTime())) {
-      jsDate = parsed;
-    }
-  } else {
-    // Try Google Sheets serial number
-    const dateNum = parseFloat(dateStr);
-    if (!isNaN(dateNum) && dateNum > 1000) {
-      jsDate = new Date((dateNum - 25569) * 86400 * 1000);
-    }
-  }
-
-  if (!jsDate || isNaN(jsDate.getTime())) {
-    return dateStr;
-  }
-
-  const day = jsDate.getDate();
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const month = monthNames[jsDate.getMonth()];
-  const year = jsDate.getFullYear();
-
-  const j = day % 10, k = day % 100;
-  let suffix = 'th';
-  if (j === 1 && k !== 11) suffix = 'st';
-  else if (j === 2 && k !== 12) suffix = 'nd';
-  else if (j === 3 && k !== 13) suffix = 'rd';
-
-  return `${day}${suffix} ${month} ${year}`;
-}
-
-
 function formatStockQuantity(stockValue) {
   if (!stockValue || stockValue === '') return stockValue;
   
@@ -369,24 +326,23 @@ function isWithinOrderQueryWindow(from) {
   
   return (now - lastQuery) < twoMinutes;  
 }
+// Production Stage Functions (UNCHANGED)
 function checkProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
-    let lastStageDate = '';
 
     for (let i = 0; i < PRODUCTION_STAGES.length; i++) {
       const stage = PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
-
+      
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
-
-      if (cellValue !== '') {
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
         lastCompletedStage = stage;
-        lastStageDate = cellValue;
         hasAnyStage = true;
       }
     }
@@ -397,18 +353,24 @@ function checkProductionStages(row) {
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-
+      
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
-
-      const formattedDate = formatDateWithSuffix(rawDispatchDate);
+      
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      
       return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
-    const formattedStageDate = formatDateWithSuffix(lastStageDate);
-    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
+    if (lastCompletedStage) {
+      return { 
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
+      };
+    }
+
+    return { message: 'Error determining order status' };
 
   } catch (error) {
     console.error('Error checking production stages:', error);
@@ -416,25 +378,22 @@ function checkProductionStages(row) {
   }
 }
 
-
 function checkJacketProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
-    let lastStageDate = '';
 
     for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
       const stage = JACKET_PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
-
+      
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
-
-      if (cellValue !== '') {
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
         lastCompletedStage = stage;
-        lastStageDate = cellValue;
         hasAnyStage = true;
       }
     }
@@ -445,18 +404,24 @@ function checkJacketProductionStages(row) {
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-
+      
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
-
-      const formattedDate = formatDateWithSuffix(rawDispatchDate);
+      
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      
       return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
-    const formattedStageDate = formatDateWithSuffix(lastStageDate);
-    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
+    if (lastCompletedStage) {
+      return { 
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
+      };
+    }
+
+    return { message: 'Error determining order status' };
 
   } catch (error) {
     console.error('Error checking jacket production stages:', error);
@@ -464,25 +429,22 @@ function checkJacketProductionStages(row) {
   }
 }
 
-
 function checkTrouserProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
-    let lastStageDate = '';
 
     for (let i = 0; i < TROUSER_PRODUCTION_STAGES.length; i++) {
       const stage = TROUSER_PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
-
+      
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
-
-      if (cellValue !== '') {
+      
+      if (cellValue !== '' && cellValue !== null && cellValue !== undefined) {
         lastCompletedStage = stage;
-        lastStageDate = cellValue;
         hasAnyStage = true;
       }
     }
@@ -493,18 +455,24 @@ function checkTrouserProductionStages(row) {
 
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-
+      
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
-
-      const formattedDate = formatDateWithSuffix(rawDispatchDate);
+      
+      const formattedDate = formatDateForDisplay(rawDispatchDate);
+      
       return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
-    const formattedStageDate = formatDateWithSuffix(lastStageDate);
-    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
+    if (lastCompletedStage) {
+      return { 
+        message: `Order is currently completed ${lastCompletedStage.name} stage and processed to ${lastCompletedStage.nextStage} stage` 
+      };
+    }
+
+    return { message: 'Error determining order status' };
 
   } catch (error) {
     console.error('Error checking trouser production stages:', error);
