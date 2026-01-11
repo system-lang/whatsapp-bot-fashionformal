@@ -61,8 +61,8 @@ const SHORTCUT_COMMANDS = [
 ];
 
 const links = {
-  helpTicket: 'https://tinyurl.com/ffhelpticket1',
-  delegation: 'https://tinyurl.com/ffdelegation2',
+  helpTicket: 'https://tinyurl.com/HelpticketFF',
+  delegation: 'https://tinyurl.com/ffdelegation1',
   leave: 'YOUR_LEAVE_FORM_LINK_HERE'
 };
 
@@ -167,7 +167,7 @@ function isValidBotInteraction(message, userState) {
     switch (userState.currentMenu) {
       case 'main':
         return ['1', '2', '3', '4'].includes(message.trim());
-      case 'order_number_input':
+      case 'order_number_input': // MODIFIED: Remove order_query state check
       case 'order_followup':
         return message.trim().length > 0;
       case 'smart_stock_query':
@@ -235,7 +235,7 @@ function formatDateForDisplay(rawDate) {
         });
       }
     } catch (error) {
-      // ignore
+      // If conversion fails, return original
     }
   }
   
@@ -259,6 +259,7 @@ function goBackOneStep(from) {
   
   const currentMenu = userStates[from].currentMenu;
   
+  // REMOVED: order_query state handling since we skip that menu
   if (currentMenu === 'order_number_input') {
     userStates[from] = { currentMenu: 'main', timestamp: Date.now() };
     return true;
@@ -325,7 +326,6 @@ function isWithinOrderQueryWindow(from) {
   
   return (now - lastQuery) < twoMinutes;  
 }
-
 // Production Stage Functions (UNCHANGED)
 function checkProductionStages(row) {
   try {
@@ -566,7 +566,7 @@ Please contact administrator for access.`;
   
   if (userPermissions.includes('order')) {
     menuItems.push('2. Order Query');
-    shortcuts.push('/order - Direct Order Search');
+    shortcuts.push('/order - Direct Order Search'); // MODIFIED: Updated text
     shortcuts.push('/shirting - Shirting Orders');
     shortcuts.push('/jacket - Jacket Orders');
     shortcuts.push('/trouser - Trouser Orders');
@@ -728,12 +728,14 @@ async function searchAllOrdersUnified(searchTerm) {
     
     console.log(`🔍 UNIFIED SEARCH for: "${cleanSearchTerm}"`);
 
+    // PARALLEL SEARCH: Search all 3 product types simultaneously using Promise.all()
     const [shirtingResults, jacketResults, trouserResults] = await Promise.all([
       searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, drive),
       searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, drive),
       searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, drive)
     ]);
 
+    // Combine results from all product types
     matchingOrders.push(...shirtingResults);
     matchingOrders.push(...jacketResults);
     matchingOrders.push(...trouserResults);
@@ -752,6 +754,7 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
   const results = [];
   
   try {
+    // Search shirting live sheet
     const liveResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: LIVE_SHEET_ID,
       range: `${LIVE_SHEET_NAME}!A:CL`,
@@ -768,8 +771,6 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
         if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
           orderNumber = row[3].toString().trim();
         }
-
-        const storeName = row.length > 4 && row[4] != null ? row[4].toString().trim() : 'N/A';
         
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
           const stageStatus = checkProductionStages(row);
@@ -777,13 +778,13 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
             orderNumber: orderNumber,
             message: stageStatus.message,
             location: 'Live Sheet',
-            productType: 'Shirting',
-            storeName
+            productType: 'Shirting'
           });
         }
       }
     }
 
+    // Search shirting completed orders
     const folderFiles = await drive.files.list({
       q: `'${COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -808,8 +809,6 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
           if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
             orderNumber = row[3].toString().trim();
           }
-
-          const storeName = row.length > 4 && row[4] != null ? row[4].toString().trim() : 'N/A';
           
           if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
             let rawDispatchDate = '';
@@ -823,8 +822,7 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
               location: 'Completed Orders',
-              productType: 'Shirting',
-              storeName
+              productType: 'Shirting'
             });
           }
         }
@@ -845,6 +843,7 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
   const results = [];
   
   try {
+    // Search jacket live sheet
     const liveResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: JACKET_LIVE_SHEET_ID,
       range: `${JACKET_LIVE_SHEET_NAME}!A:BW`,
@@ -861,8 +860,6 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
         if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
           orderNumber = row[3].toString().trim();
         }
-
-        const storeName = row.length > 4 && row[4] != null ? row[4].toString().trim() : 'N/A';
         
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
           const stageStatus = checkJacketProductionStages(row);
@@ -870,13 +867,13 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
             orderNumber: orderNumber,
             message: stageStatus.message,
             location: 'Live Sheet',
-            productType: 'Jacket',
-            storeName
+            productType: 'Jacket'
           });
         }
       }
     }
 
+    // Search jacket completed orders
     const folderFiles = await drive.files.list({
       q: `'${JACKET_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -901,8 +898,6 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
           if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
             orderNumber = row[3].toString().trim();
           }
-
-          const storeName = row.length > 4 && row[4] != null ? row[4].toString().trim() : 'N/A';
           
           if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
             let rawDispatchDate = '';
@@ -916,8 +911,7 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
               location: 'Completed Orders',
-              productType: 'Jacket',
-              storeName
+              productType: 'Jacket'
             });
           }
         }
@@ -938,6 +932,7 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
   const results = [];
   
   try {
+    // Search trouser live sheet
     const liveResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TROUSER_LIVE_SHEET_ID,
       range: `${TROUSER_LIVE_SHEET_NAME}!A:BW`,
@@ -954,8 +949,6 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
         if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
           orderNumber = row[3].toString().trim();
         }
-
-        const storeName = row.length > 4 && row[4] != null ? row[4].toString().trim() : 'N/A';
         
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
           const stageStatus = checkTrouserProductionStages(row);
@@ -963,13 +956,13 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
             orderNumber: orderNumber,
             message: stageStatus.message,
             location: 'Live Sheet',
-            productType: 'Trouser',
-            storeName
+            productType: 'Trouser'
           });
         }
       }
     }
 
+    // Search trouser completed orders
     const folderFiles = await drive.files.list({
       q: `'${TROUSER_COMPLETED_ORDER_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name)'
@@ -994,8 +987,6 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
           if (row.length > 3 && row[3] !== undefined && row[3] !== null) {
             orderNumber = row[3].toString().trim();
           }
-
-          const storeName = row.length > 4 && row[4] != null ? row[4].toString().trim() : 'N/A';
           
           if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
             let rawDispatchDate = '';
@@ -1009,8 +1000,7 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
               orderNumber: orderNumber,
               message: `Order got dispatched on ${formattedDate}`,
               location: 'Completed Orders',
-              productType: 'Trouser',
-              storeName
+              productType: 'Trouser'
             });
           }
         }
@@ -1026,94 +1016,7 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
   return results;
 }
 
-// NEW: Generate ORDER PDF when results > 5
-async function generateOrderPDF(uniqueResults, phoneNumber, rawSearchTerms) {
-  return new Promise((resolve, reject) => {
-    try {
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-      const filename = `order_results_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
-      const filepath = path.join(__dirname, 'temp', filename);
-
-      const tempDir = path.join(__dirname, 'temp');
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
-
-      const doc = new PDFDocument({
-        margin: 40,
-        size: 'A4'
-      });
-
-      const stream = fs.createWriteStream(filepath);
-      doc.pipe(stream);
-
-      doc.fontSize(18)
-        .font('Helvetica-Bold')
-        .text('ORDER QUERY RESULTS', { align: 'center' });
-
-      doc.moveDown(0.5);
-
-      doc.fontSize(10)
-        .font('Helvetica')
-        .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
-        .text(`Phone: ${phoneNumber}`)
-        .text(`Search Terms: ${rawSearchTerms.join(', ')}`)
-        .moveDown(0.5);
-
-      doc.moveTo(40, doc.y)
-        .lineTo(555, doc.y)
-        .stroke();
-      doc.moveDown(0.5);
-
-      const headersY = doc.y;
-      doc.fontSize(11)
-        .font('Helvetica-Bold')
-        .text('Order No.', 40, headersY, { width: 130, continued: true })
-        .text('Store', 170, headersY, { width: 140, continued: true })
-        .text('Type', 310, headersY, { width: 80, continued: true })
-        .text('Status / Message', 390, headersY, { width: 170 });
-
-      doc.moveDown(0.2);
-      doc.moveTo(40, doc.y)
-        .lineTo(555, doc.y)
-        .stroke();
-      doc.moveDown(0.3);
-
-      doc.fontSize(9).font('Helvetica');
-
-      const maxY = 800;
-
-      uniqueResults.forEach(result => {
-        if (doc.y > maxY) {
-          doc.addPage();
-        }
-
-        doc.text(result.orderNumber || '-', 40, doc.y, { width: 130, continued: true })
-          .text(result.storeName || 'N/A', 170, doc.y, { width: 140, continued: true })
-          .text(result.productType || '-', 310, doc.y, { width: 80, continued: true })
-          .text(result.message || '-', 390, doc.y, { width: 170 });
-
-        doc.moveDown(0.2);
-      });
-
-      doc.moveDown(0.5);
-      doc.fontSize(8)
-        .font('Helvetica')
-        .text(`Total Orders: ${uniqueResults.length}`, { align: 'right' });
-
-      doc.end();
-
-      stream.on('finish', () => {
-        resolve({ filepath, filename, totalResults: uniqueResults.length });
-      });
-      stream.on('error', reject);
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-// MODIFIED: New unified processOrderQuery function with PDF + store name
+// MODIFIED: New unified processOrderQuery function
 async function processOrderQuery(from, orderNumbers, productId, phoneId, isFollowUp = false) {
   try {
     if (!isFollowUp) {
@@ -1127,24 +1030,24 @@ Please wait while I search across all product types.`, productId, phoneId);
     }
 
     let allResults = [];
-    const rawSearchTerms = [];
 
+    // Process each order number/search term
     for (const orderInput of orderNumbers) {
       const cleanInput = orderInput.trim();
-      if (!cleanInput) continue;
-
-      rawSearchTerms.push(cleanInput);
+      
       console.log(`Processing unified search for: "${cleanInput}"`);
       
+      // Search across all product types simultaneously
       const matchingOrders = await searchAllOrdersUnified(cleanInput);
       allResults = allResults.concat(matchingOrders);
     }
 
+    // Remove duplicates
     const uniqueResults = [];
     const seenOrders = new Set();
     
     for (const result of allResults) {
-      const orderKey = `${result.orderNumber}-${result.productType}-${result.storeName || ''}`;
+      const orderKey = `${result.orderNumber}-${result.productType}`;
       if (!seenOrders.has(orderKey)) {
         seenOrders.add(orderKey);
         uniqueResults.push(result);
@@ -1162,9 +1065,11 @@ Please wait while I search across all product types.`, productId, phoneId);
       return;
     }
 
+    // If 5 or fewer results, show in WhatsApp message
     if (uniqueResults.length <= 5) {
       let responseMessage = isFollowUp ? `*ADDITIONAL ORDER SEARCH*\n\n` : `*ORDER SEARCH RESULTS*\n\n`;
       
+      // Group results by product type for better display
       const productGroups = {};
       uniqueResults.forEach(result => {
         if (!productGroups[result.productType]) {
@@ -1177,7 +1082,6 @@ Please wait while I search across all product types.`, productId, phoneId);
         responseMessage += `*${productType.toUpperCase()} ORDERS*\n`;
         orders.forEach(result => {
           responseMessage += `*${result.orderNumber}*\n`;
-          responseMessage += `Store: ${result.storeName || 'N/A'}\n`;
           responseMessage += `${result.message}\n\n`;
         });
       });
@@ -1195,40 +1099,17 @@ Please wait while I search across all product types.`, productId, phoneId);
       };
       
     } else {
-      try {
-        const pdfResult = await generateOrderPDF(uniqueResults, from, rawSearchTerms);
+      // More than 5 results - notify user
+      await sendWhatsAppMessage(from, `*Large Results Found*
 
-        const baseUrl = 'https://whatsapp-bot-fashionformal-production.up.railway.app';
-        const downloadUrl = `${baseUrl}/download/${pdfResult.filename}`;
+Found ${uniqueResults.length} orders across all product types.
+Results are too many for WhatsApp display.
 
-        const summaryMessage = `*Large Results Found*
-
-Found ${pdfResult.totalResults} orders across all product types.
-
-Results are too long for WhatsApp.
-A detailed PDF (with store names) has been generated.
-
-Download your PDF:
-${downloadUrl}
-
-Link expires in 5 minutes.
-
-Type /menu for main menu`;
-
-        await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
-
-        delete userStates[from];
-      } catch (pdfError) {
-        console.error('PDF generation failed for orders:', pdfError);
-        await sendWhatsAppMessage(from, `*Error Generating PDF*
-
-Found ${uniqueResults.length} orders but could not generate PDF.
-Please contact support.
+Please use more specific search terms or contact support for detailed results.
 
 Type /menu for main menu`, productId, phoneId);
-        
-        delete userStates[from];
-      }
+      
+      delete userStates[from];
     }
     
   } catch (error) {
@@ -1242,7 +1123,6 @@ Type /menu for main menu`, productId, phoneId);
     delete userStates[from];
   }
 }
-
 // Complete Stock Functions (UNCHANGED)
 async function getUserPermittedStores(phoneNumber) {
   try {
@@ -1569,7 +1449,9 @@ You can search again within 40 seconds or type /menu for main menu`, productId, 
       return;
     }
     
-    await sendWhatsAppMessage(from, `*Smart Stock Search*... Searching for: ${validTerms.join(', ')}
+    await sendWhatsAppMessage(from, `*Smart Stock Search*
+
+Searching for: ${validTerms.join(', ')}
 
 Please wait while I search all stock sheets...`, productId, phoneId);
 
@@ -1738,17 +1620,20 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // Check for expired stock sessions and clean them up
   if (userStates[from] && isStockSessionExpired(userStates[from])) {
     console.log(`Stock session expired for ${from} at ${new Date().toLocaleTimeString()}`);
     delete userStates[from];
   }
 
+  // Check if this is a valid bot interaction
   if (!isValidBotInteraction(trimmedMessage, userStates[from])) {
     return res.sendStatus(200);
   }
 
   const lowerMessage = trimmedMessage.toLowerCase();
 
+  // Debug commands (UNCHANGED)
   if (lowerMessage === '/debuggreet') {
     const greeting = await getUserGreeting(from);
     const debugMessage = greeting 
@@ -1799,6 +1684,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // Handle single "/" for going back one step (MODIFIED)
   if (trimmedMessage === '/') {
     const wentBack = goBackOneStep(from);
     if (wentBack) {
@@ -1808,12 +1694,16 @@ app.post('/webhook', async (req, res) => {
         const finalMessage = formatGreetingMessage(greeting, personalizedMenu);
         await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
       }
+      // REMOVED: order_query case since we skip that menu
     } else {
       await sendWhatsAppMessage(from, 'Cannot go back further. Type /menu for main menu.', productId, phoneId);
     }
     return res.sendStatus(200);
   }
 
+  // CONTEXT SWITCHING SHORTCUTS
+
+  // Main menu (UNCHANGED)
   if (lowerMessage === '/menu') {
     userStates[from] = { currentMenu: 'main', timestamp: Date.now() };
     
@@ -1825,6 +1715,7 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // Direct Stock Query shortcut (UNCHANGED)
   if (lowerMessage === '/stock') {
     if (!(await hasFeatureAccess(from, 'stock'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Stock Query.\nContact administrator for access.`, productId, phoneId);
@@ -1859,6 +1750,7 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
+  // MODIFIED: Direct Order Query shortcut - No more category selection
   if (lowerMessage === '/order') {
     if (!(await hasFeatureAccess(from, 'order'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
@@ -1889,6 +1781,7 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
+  // MODIFIED: Order category shortcuts - Now go direct to unified search
   if (lowerMessage === '/shirting' || lowerMessage === '/jacket' || lowerMessage === '/trouser') {
     if (!(await hasFeatureAccess(from, 'order'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`, productId, phoneId);
@@ -1926,6 +1819,7 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
+  // Direct ticket shortcuts (UNCHANGED)
   if (lowerMessage === '/helpticket') {
     if (!(await hasFeatureAccess(from, 'help_ticket'))) {
       await sendWhatsAppMessage(from, `*ACCESS DENIED*\n\nYou don't have permission to access Help Ticket.\nContact administrator for access.`, productId, phoneId);
@@ -1964,12 +1858,13 @@ Type /menu for main menu or / to go back`;
     return res.sendStatus(200);
   }
 
+  // Handle order follow-up queries within 2-minute window (MODIFIED)
   if (userStates[from] && userStates[from].currentMenu === 'order_followup') {
     if (isWithinOrderQueryWindow(from) && trimmedMessage !== '/menu' && trimmedMessage !== '/') {
       const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
       
       if (orderNumbers.length > 0) {
-        await processOrderQuery(from, orderNumbers, productId, phoneId, true);
+        await processOrderQuery(from, orderNumbers, productId, phoneId, true); // MODIFIED: Removed category
         return res.sendStatus(200);
       }
     } else {
@@ -1977,8 +1872,10 @@ Type /menu for main menu or / to go back`;
     }
   }
 
+  // Handle menu selections (MODIFIED - Removed option 2 order category selection)
   if (userStates[from] && userStates[from].currentMenu === 'main') {
     
+    // TICKET OPTION (1) (UNCHANGED)
     if (trimmedMessage === '1') {
       const hasAnyTicketAccess = (await hasFeatureAccess(from, 'help_ticket')) ||
                                  (await hasFeatureAccess(from, 'delegation')) ||
@@ -1995,6 +1892,7 @@ Type /menu for main menu or / to go back`;
       return res.sendStatus(200);
     }
 
+    // MODIFIED: ORDER QUERY OPTION (2) - Go direct to unified search
     if (trimmedMessage === '2' && (await hasFeatureAccess(from, 'order'))) {
       userStates[from] = { currentMenu: 'order_number_input', timestamp: Date.now() };
       
@@ -2020,6 +1918,7 @@ Type your search terms below or / to go back:`;
       return res.sendStatus(200);
     }
 
+    // STOCK QUERY OPTION (3) (UNCHANGED)
     if (trimmedMessage === '3' && (await hasFeatureAccess(from, 'stock'))) {
       userStates[from] = { 
         currentMenu: 'smart_stock_query', 
@@ -2049,6 +1948,7 @@ Type your search terms below or / to go back:`;
       return res.sendStatus(200);
     }
 
+    // DOCUMENT OPTION (4) (UNCHANGED)
     if (trimmedMessage === '4' && (await hasFeatureAccess(from, 'document'))) {
       await sendWhatsAppMessage(from, '*DOCUMENT*\n\nThis feature is coming soon!\n\nType /menu for main menu or / to go back', productId, phoneId);
       delete userStates[from];
@@ -2059,15 +1959,19 @@ Type your search terms below or / to go back:`;
     return res.sendStatus(200);
   }
 
+  // REMOVED: Order query category selection handler (no longer needed)
+
+  // MODIFIED: Handle order number input - Now uses unified search
   if (userStates[from] && userStates[from].currentMenu === 'order_number_input') {
     if (trimmedMessage !== '/menu' && trimmedMessage !== '/') {
       const orderNumbers = trimmedMessage.split(',').map(order => order.trim()).filter(order => order.length > 0);
       
-      await processOrderQuery(from, orderNumbers, productId, phoneId);
+      await processOrderQuery(from, orderNumbers, productId, phoneId); // MODIFIED: Removed category parameter
       return res.sendStatus(200);
     }
   }
 
+  // Handle smart stock query input (UNCHANGED)
   if (userStates[from] && userStates[from].currentMenu === 'smart_stock_query') {
     if (trimmedMessage !== '/menu' && trimmedMessage !== '/') {
       const searchTerms = trimmedMessage.split(',').map(q => q.trim()).filter(q => q.length > 0);
@@ -2083,10 +1987,35 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`WhatsApp Bot running on port ${PORT}`);
   console.log('✅ MAJOR UPDATE: Direct Order Input System Activated');
+  console.log('✅ REMOVED: Order category selection menu (1, 2, 3)');
   console.log('✅ NEW: Unified search across ALL product types simultaneously');
   console.log('✅ NEW: Super fast parallel searching with Promise.all()');
   console.log('✅ NEW: Smart result grouping by product type');
   console.log('✅ ENHANCED: /order now goes directly to unified search');
-  console.log('✅ NEW: Order PDF with store names when results > 5');
-  console.log('✅ Delegation & HelpTicket links updated to tinyurl.com/ffdelegation2 and tinyurl.com/ffhelpticket1');
+  console.log('✅ All other functions remain completely intact');
+  console.log('');
+  console.log('🚀 DIRECT ORDER COMMANDS:');
+  console.log('   /order - Direct unified order search (from anywhere)');
+  console.log('   /shirting - Direct unified search with shirting context');
+  console.log('   /jacket - Direct unified search with jacket context'); 
+  console.log('   /trouser - Direct unified search with trouser context');
+  console.log('');
+  console.log('⚡ SPEED IMPROVEMENTS:');
+  console.log('   - Parallel searching across Shirting, Jacket & Trouser');
+  console.log('   - No menu navigation delays');
+  console.log('   - Direct order number input');
+  console.log('   - Instant results grouping by product type');
+  console.log('');
+  console.log('🔍 UNIFIED SEARCH FEATURES:');
+  console.log('   - Searches ALL sheets simultaneously');
+  console.log('   - Groups results by product type automatically');
+  console.log('   - Handles partial and exact matches');
+  console.log('   - Removes duplicate results intelligently');
+  console.log('   - Displays up to 5 results in WhatsApp');
+  console.log('');
+  console.log('📱 USER EXPERIENCE:');
+  console.log('   - Type /order -> directly enter order numbers');
+  console.log('   - No more "1. Shirting 2. Jacket 3. Trouser" menu');
+  console.log('   - Get results from all product types instantly');
+  console.log('   - Clear product type labels in results');
 });
