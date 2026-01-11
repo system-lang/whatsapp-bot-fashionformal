@@ -805,14 +805,22 @@ async function searchShirtingOrders(cleanSearchTerm, auth, authClient, sheets, d
         }
 
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-          const stageStatus = checkProductionStages(row);
-          results.push({
-            orderNumber: orderNumber,
-            message: stageStatus.message,
-            location: 'Live Sheet',
-            productType: 'Shirting'
-          });
-        }
+  // Get store name from Column E (index 4)
+  let storeName = '';
+  if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+    storeName = row[4].toString().trim();
+  }
+
+  const stageStatus = checkProductionStages(row);
+  results.push({
+    orderNumber: orderNumber,
+    message: stageStatus.message,
+    storeName: storeName,  // NEW
+    location: 'Live Sheet',
+    productType: 'Shirting'
+  });
+}
+
       }
     }
 
@@ -894,14 +902,22 @@ async function searchJacketOrders(cleanSearchTerm, auth, authClient, sheets, dri
         }
 
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-          const stageStatus = checkJacketProductionStages(row);
-          results.push({
-            orderNumber: orderNumber,
-            message: stageStatus.message,
-            location: 'Live Sheet',
-            productType: 'Jacket'
-          });
-        }
+  // Get store name from Column E (index 4)
+  let storeName = '';
+  if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+    storeName = row[4].toString().trim();
+  }
+
+  const stageStatus = checkJacketProductionStages(row);
+  results.push({
+    orderNumber: orderNumber,
+    message: stageStatus.message,
+    storeName: storeName,  // NEW
+    location: 'Live Sheet',
+    productType: 'Jacket'
+  });
+}
+
       }
     }
 
@@ -983,14 +999,22 @@ async function searchTrouserOrders(cleanSearchTerm, auth, authClient, sheets, dr
         }
 
         if (orderNumber && isOrderMatch(orderNumber, cleanSearchTerm)) {
-          const stageStatus = checkTrouserProductionStages(row);
-          results.push({
-            orderNumber: orderNumber,
-            message: stageStatus.message,
-            location: 'Live Sheet',
-            productType: 'Trouser'
-          });
-        }
+  // Get store name from Column E (index 4)
+  let storeName = '';
+  if (row.length > 4 && row[4] !== undefined && row[4] !== null) {
+    storeName = row[4].toString().trim();
+  }
+
+  const stageStatus = checkTrouserProductionStages(row);
+  results.push({
+    orderNumber: orderNumber,
+    message: stageStatus.message,
+    storeName: storeName,  // NEW
+    location: 'Live Sheet',
+    productType: 'Trouser'
+  });
+}
+
       }
     }
 
@@ -1111,12 +1135,17 @@ Please wait while I search across all product types.`, productId, phoneId);
       });
 
       Object.entries(productGroups).forEach(([productType, orders]) => {
-        responseMessage += `*${productType.toUpperCase()} ORDERS*\n`;
-        orders.forEach(result => {
-          responseMessage += `*${result.orderNumber}*\n`;
-          responseMessage += `${result.message}\n\n`;
-        });
-      });
+  responseMessage += `*${productType.toUpperCase()} ORDERS*\n`;
+  orders.forEach(result => {
+    responseMessage += `*${result.orderNumber}*\n`;
+    responseMessage += `${result.message}`;
+    if (result.storeName) {
+      responseMessage += ` (${result.storeName})`;
+    }
+    responseMessage += `\n\n`;
+  });
+});
+
 
       orderQueryTimestamps[from] = Date.now();
 
@@ -1131,18 +1160,23 @@ Please wait while I search across all product types.`, productId, phoneId);
       };
 
     } else {
-      // More than 5 results - notify user
-      await sendWhatsAppMessage(from, `*Large Results Found*
+  // More than 5 results - generate PDF
+  try {
+    const pdfResult = await generateOrderPDF(uniqueResults, from);
 
-Found ${uniqueResults.length} orders across all product types.
-Results are too many for WhatsApp display.
+    const summaryMessage = `*Large Results Found*\n\nTotal Orders: ${uniqueResults.length}\nPDF Generated: ${pdfResult.filename}\n\nResults are too many for WhatsApp.\nDownload the PDF below for complete details with store names.\n\n`;
 
-Please use more specific search terms or contact support for detailed results.
+    await sendWhatsAppMessage(from, summaryMessage, productId, phoneId);
+    await sendWhatsAppFile(from, pdfResult.filepath, pdfResult.filename, productId, phoneId, []);
 
-Type /menu for main menu`, productId, phoneId);
+    delete userStates[from];
+  } catch (pdfError) {
+    console.error('PDF generation failed:', pdfError);
+    await sendWhatsAppMessage(from, `*Error Generating PDF*\n\nFound ${uniqueResults.length} results but could not generate PDF.\nPlease contact support.\n\nType /menu for main menu`, productId, phoneId);
+    delete userStates[from];
+  }
+}
 
-      delete userStates[from];
-    }
 
   } catch (error) {
     console.error('Error processing unified order query:', error);
@@ -1411,6 +1445,101 @@ async function generateStockPDF(searchResults, searchTerms, phoneNumber, permitt
     throw error;
   }
 }
+
+async function generateOrderPDF(searchResults, phoneNumber) {
+  try {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const filename = `order_results_${phoneNumber.slice(-4)}_${timestamp}.pdf`;
+    const filepath = path.join(__dirname, 'temp', filename);
+
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const doc = new PDFDocument({
+      margin: 50,
+      size: 'A4'
+    });
+
+    const stream = fs.createWriteStream(filepath);
+    doc.pipe(stream);
+
+    doc.fontSize(18)
+       .font('Helvetica-Bold')
+       .text('ORDER QUERY RESULTS', { align: 'center' });
+
+    doc.moveDown(0.5);
+
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
+       .text(`Phone: ${phoneNumber}`)
+       .moveDown();
+
+    doc.moveTo(50, doc.y)
+       .lineTo(550, doc.y)
+       .stroke();
+    doc.moveDown(0.5);
+
+    let totalResults = 0;
+
+    // Group results by product type
+    const productGroups = {};
+    searchResults.forEach(result => {
+      if (!productGroups[result.productType]) {
+        productGroups[result.productType] = [];
+      }
+      productGroups[result.productType].push(result);
+    });
+
+    Object.entries(productGroups).forEach(([productType, orders]) => {
+      doc.fontSize(16)
+         .font('Helvetica-Bold')
+         .text(`${productType.toUpperCase()} ORDERS`);
+
+      doc.moveDown(0.3);
+
+      orders.forEach(result => {
+        totalResults++;
+        doc.fontSize(11)
+           .font('Helvetica-Bold')
+           .text(`Order: ${result.orderNumber}`);
+
+        doc.fontSize(10)
+           .font('Helvetica')
+           .text(`Status: ${result.message}`, { leftMargin: 70 });
+
+        if (result.storeName) {
+          doc.text(`Store: ${result.storeName}`, { leftMargin: 70 });
+        }
+
+        doc.text(`Location: ${result.location}`, { leftMargin: 70 });
+        doc.moveDown(0.3);
+      });
+
+      doc.moveDown(0.5);
+    });
+
+    doc.fontSize(8)
+       .font('Helvetica')
+       .text(`Total Orders: ${totalResults}`, { align: 'right' });
+
+    doc.end();
+
+    await new Promise((resolve, reject) => {
+      stream.on('finish', resolve);
+      stream.on('error', reject);
+    });
+
+    return { filepath, filename, totalResults };
+
+  } catch (error) {
+    console.error('Error generating order PDF:', error);
+    throw error;
+  }
+}
+
 
 async function sendWhatsAppFile(to, filepath, filename, productId, phoneId, permittedStores) {
   try {
