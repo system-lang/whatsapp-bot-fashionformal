@@ -379,52 +379,7 @@ function checkProductionStages(row) {
       const stage = PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
 
-let cellValue = '';
-      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
-        cellValue = row[columnIndex].toString().trim();
-      }
-
-  if (cellValue !== '') {
- lastCompletedStage = stage;
-        lastStageDate = cellValue;
-        hasAnyStage = true;
-      }
-    }
-
-    if (!hasAnyStage) {
-      return { message: 'Order is currently under process' };
-    }
-
-    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
-      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
-
-      
-      let rawDispatchDate = '';
-      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
-        rawDispatchDate = row[dispatchDateIndex];
-      }
-
- const formattedDate = formatDateWithSuffix(rawDispatchDate);
-return { message: `Order has been dispatched from HO on ${formattedDate}` };
-    }
-
-    const formattedStageDate = formatDateWithSuffix(lastStageDate);
-    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
- } catch (error) {
-    console.error('Error checking production stages:', error);
-    return { message: 'Error checking order status' };
-  }
-}
-function checkJacketProductionStages(row) {
-  try {
-    let lastCompletedStage = null;
-    let hasAnyStage = false;
-    let lastStageDate = '';
-
-    for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
-      const stage = JACKET_PRODUCTION_STAGES[i];
-      const columnIndex = columnToIndex(stage.column);
- let cellValue = '';
+      let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
@@ -443,39 +398,42 @@ function checkJacketProductionStages(row) {
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
 
-       let rawDispatchDate = '';
+      let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
 
       const formattedDate = formatDateWithSuffix(rawDispatchDate);
-return { message: `Order has been dispatched from HO on ${formattedDate}` };
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
- const formattedStageDate = formatDateWithSuffix(lastStageDate);
+
+    const formattedStageDate = formatDateWithSuffix(lastStageDate);
     return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
-} catch (error) {
-    console.error('Error checking jacket production stages:', error);
+
+  } catch (error) {
+    console.error('Error checking production stages:', error);
     return { message: 'Error checking order status' };
   }
 }
-function checkTrouserProductionStages(row) {
+
+
+function checkJacketProductionStages(row) {
   try {
     let lastCompletedStage = null;
     let hasAnyStage = false;
     let lastStageDate = '';
 
-    for (let i = 0; i < TROUSER_PRODUCTION_STAGES.length; i++) {
-      const stage = TROUSER_PRODUCTION_STAGES[i];
+    for (let i = 0; i < JACKET_PRODUCTION_STAGES.length; i++) {
+      const stage = JACKET_PRODUCTION_STAGES[i];
       const columnIndex = columnToIndex(stage.column);
 
-      
       let cellValue = '';
       if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
         cellValue = row[columnIndex].toString().trim();
       }
 
       if (cellValue !== '') {
- lastCompletedStage = stage;
+        lastCompletedStage = stage;
         lastStageDate = cellValue;
         hasAnyStage = true;
       }
@@ -488,19 +446,67 @@ function checkTrouserProductionStages(row) {
     if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
       const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
 
-      
       let rawDispatchDate = '';
       if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
         rawDispatchDate = row[dispatchDateIndex];
       }
 
- const formattedDate = formatDateWithSuffix(rawDispatchDate);
-return { message: `Order has been dispatched from HO on ${formattedDate}` };
+      const formattedDate = formatDateWithSuffix(rawDispatchDate);
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
     }
 
     const formattedStageDate = formatDateWithSuffix(lastStageDate);
     return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
-} catch (error) {
+
+  } catch (error) {
+    console.error('Error checking jacket production stages:', error);
+    return { message: 'Error checking order status' };
+  }
+}
+
+
+function checkTrouserProductionStages(row) {
+  try {
+    let lastCompletedStage = null;
+    let hasAnyStage = false;
+    let lastStageDate = '';
+
+    for (let i = 0; i < TROUSER_PRODUCTION_STAGES.length; i++) {
+      const stage = TROUSER_PRODUCTION_STAGES[i];
+      const columnIndex = columnToIndex(stage.column);
+
+      let cellValue = '';
+      if (row.length > columnIndex && row[columnIndex] !== undefined && row[columnIndex] !== null) {
+        cellValue = row[columnIndex].toString().trim();
+      }
+
+      if (cellValue !== '') {
+        lastCompletedStage = stage;
+        lastStageDate = cellValue;
+        hasAnyStage = true;
+      }
+    }
+
+    if (!hasAnyStage) {
+      return { message: 'Order is currently under process' };
+    }
+
+    if (lastCompletedStage && lastCompletedStage.name === 'Dispatch (HO)') {
+      const dispatchDateIndex = columnToIndex(lastCompletedStage.dispatchDateColumn);
+
+      let rawDispatchDate = '';
+      if (row.length > dispatchDateIndex && row[dispatchDateIndex] !== undefined && row[dispatchDateIndex] !== null) {
+        rawDispatchDate = row[dispatchDateIndex];
+      }
+
+      const formattedDate = formatDateWithSuffix(rawDispatchDate);
+      return { message: `Order has been dispatched from HO on ${formattedDate}` };
+    }
+
+    const formattedStageDate = formatDateWithSuffix(lastStageDate);
+    return { message: `Order is completed ${lastCompletedStage.name} on ${formattedStageDate}` };
+
+  } catch (error) {
     console.error('Error checking trouser production stages:', error);
     return { message: 'Error checking order status' };
   }
@@ -2045,4 +2051,3 @@ app.listen(PORT, () => {
   console.log('   - Get results from all product types instantly');
   console.log('   - Clear product type labels in results');
 });
-
