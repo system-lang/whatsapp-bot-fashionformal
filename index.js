@@ -62,7 +62,7 @@ const SHORTCUT_COMMANDS = [
 
 const links = {
   helpTicket: 'https://tinyurl.com/ffhelpticket1',
-  delegation: 'https://tinyurl.com/ffdelegation2',
+  delegation: 'https://tinyurl.com/ffdelegation3',
   leave: 'YOUR_LEAVE_FORM_LINK_HERE'
 };
 
