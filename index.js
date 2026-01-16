@@ -1765,7 +1765,7 @@ async function sendWhatsAppMessage(to, message, productId, phoneId) {
   }
 }
 
-// MAIN WEBHOOK HANDLER - MODIFIED FOR DIRECT ORDER INPUT
+  // MAIN WEBHOOK HANDLER - MODIFIED FOR DIRECT ORDER & STOCK SHORTCUTS
 app.post('/webhook', async (req, res) => {
   const message = req.body.message?.text;
   const from = req.body.user?.phone;
@@ -1787,6 +1787,93 @@ app.post('/webhook', async (req, res) => {
     delete userStates[from];
   }
 
+  // NEW: DIRECT INLINE SHORTCUTS
+  // /order/ORDERNO or /order/ORDER1,ORDER2
+  if (trimmedMessage.toLowerCase().startsWith('/order/')) {
+    if (!(await hasFeatureAccess(from, 'order'))) {
+      await sendWhatsAppMessage(
+        from,
+        `*ACCESS DENIED*\n\nYou don't have permission to access Order Query.\nContact administrator for access.`,
+        productId,
+        phoneId
+      );
+      return res.sendStatus(200);
+    }
+
+    const afterSlash = trimmedMessage.slice(7).trim(); // remove "/order/"
+    if (afterSlash.length === 0) {
+      await sendWhatsAppMessage(
+        from,
+        `*UNIFIED ORDER SEARCH*\n\nYou used */order/* shortcut but did not provide any order number.\nExample:\n/order/B-J3005Z-1-1\n/order/J3005Z, GT546\n\nType again with order number(s).`,
+        productId,
+        phoneId
+      );
+      return res.sendStatus(200);
+    }
+
+    const orderNumbers = afterSlash
+      .split(',')
+      .map(o => o.trim())
+      .filter(o => o.length > 0);
+
+    if (orderNumbers.length === 0) {
+      await sendWhatsAppMessage(
+        from,
+        `*UNIFIED ORDER SEARCH*\n\nNo valid order numbers detected after /order/.\nExample:\n/order/B-J3005Z-1-1\n/order/J3005Z, GT546`,
+        productId,
+        phoneId
+      );
+      return res.sendStatus(200);
+    }
+
+    // do NOT change state to order_number_input; just run search as ad‑hoc shortcut
+    await processOrderQuery(from, orderNumbers, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
+  // /stock/CODE or /stock/CODE1,CODE2
+  if (trimmedMessage.toLowerCase().startsWith('/stock/')) {
+    if (!(await hasFeatureAccess(from, 'stock'))) {
+      await sendWhatsAppMessage(
+        from,
+        `*ACCESS DENIED*\n\nYou don't have permission to access Stock Query.\nContact administrator for access.`,
+        productId,
+        phoneId
+      );
+      return res.sendStatus(200);
+    }
+
+    const afterSlash = trimmedMessage.slice(7).trim(); // remove "/stock/"
+    if (afterSlash.length === 0) {
+      await sendWhatsAppMessage(
+        from,
+        `*SMART STOCK QUERY*\n\nYou used */stock/* shortcut but did not provide any code.\nExamples:\n/stock/11010\n/stock/11010, ABC12`,
+        productId,
+        phoneId
+      );
+      return res.sendStatus(200);
+    }
+
+    const searchTerms = afterSlash
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
+    if (searchTerms.length === 0) {
+      await sendWhatsAppMessage(
+        from,
+        `*SMART STOCK QUERY*\n\nNo valid search terms detected after /stock/.\nExamples:\n/stock/11010\n/stock/11010, ABC12`,
+        productId,
+        phoneId
+      );
+      return res.sendStatus(200);
+    }
+
+    // run one‑shot smart stock search without forcing user into session
+    await processSmartStockQuery(from, searchTerms, productId, phoneId);
+    return res.sendStatus(200);
+  }
+
   // Check if this is a valid bot interaction
   if (!isValidBotInteraction(trimmedMessage, userStates[from])) {
     return res.sendStatus(200);
@@ -1797,68 +1884,11 @@ app.post('/webhook', async (req, res) => {
   // Debug commands (UNCHANGED)
   if (lowerMessage === '/debuggreet') {
     const greeting = await getUserGreeting(from);
-    const debugMessage = greeting 
+    const debugMessage = greeting
       ? `Found: ${greeting.salutation} ${greeting.name} - ${greeting.greetings}`
       : 'No greeting found in sheet';
 
     await sendWhatsAppMessage(from, `Greeting debug result: ${debugMessage}`, productId, phoneId);
-    return res.sendStatus(200);
-  }
-
-  if (lowerMessage === '/debugpermissions') {
-    const permissions = await getUserPermissions(from);
-    const debugMessage = permissions.length > 0 
-      ? `Your permissions: ${permissions.join(', ')}`
-      : 'No permissions found';
-
-    await sendWhatsAppMessage(from, `Permission debug result: ${debugMessage}`, productId, phoneId);
-    return res.sendStatus(200);
-  }
-
-  if (lowerMessage === '/debugtrouser') {
-    try {
-      const auth = await getGoogleAuth();
-      const authClient = await auth.getClient();
-      const sheets = google.sheets({ version: 'v4', auth: authClient });
-
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: TROUSER_LIVE_SHEET_ID,
-        range: `${TROUSER_LIVE_SHEET_NAME}!A1:F10`,
-        valueRenderOption: 'UNFORMATTED_VALUE'
-      });
-
-      const rows = response.data.values;
-      let debugMessage = `*TROUSER SHEET DEBUG*\n\nFirst ${Math.min(10, rows.length)} rows:\n\n`;
-
-      rows.forEach((row, index) => {
-        const colD = row.length > 3 ? row[3] : 'EMPTY';
-        const colE = row.length > 4 ? row[4] : 'EMPTY';
-        debugMessage += `Row ${index}: ColD="${colD}" ColE="${colE}"\n`;
-      });
-
-      await sendWhatsAppMessage(from, debugMessage, productId, phoneId);
-
-    } catch (error) {
-      await sendWhatsAppMessage(from, `Debug error: ${error.message}`, productId, phoneId);
-    }
-
-    return res.sendStatus(200);
-  }
-
-  // Handle single "/" for going back one step (MODIFIED)
-  if (trimmedMessage === '/') {
-    const wentBack = goBackOneStep(from);
-    if (wentBack) {
-      if (userStates[from] && userStates[from].currentMenu === 'main') {
-        const greeting = await getUserGreeting(from);
-        const personalizedMenu = await generatePersonalizedMenu(from);
-        const finalMessage = formatGreetingMessage(greeting, personalizedMenu);
-        await sendWhatsAppMessage(from, finalMessage, productId, phoneId);
-      }
-      // REMOVED: order_query case since we skip that menu
-    } else {
-      await sendWhatsAppMessage(from, 'Cannot go back further. Type /menu for main menu.', productId, phoneId);
-    }
     return res.sendStatus(200);
   }
 
